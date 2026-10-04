@@ -1,0 +1,24 @@
+---
+import Base from '../layouts/Base.astro';
+
+// No database calls here: this page must work even when the database is down.
+Astro.response.status = 500;
+---
+
+<Base title="Something went wrong" noindex>
+  <div class="container section">
+    <h1 class="display h-lg">Something went wrong on my side.</h1>
+    <p class="lead muted" style="margin-top: 16px; max-width: 42ch">
+      Please try again in a minute. If it keeps happening, you can still reach me by email or
+      WhatsApp.
+    </p>
+    <div class="btn-row" style="margin-top: 32px">
+      <a class="btn btn-primary" href="/">
+        Try the home page
+      </a>
+      <a class="btn btn-ghost" href="mailto:hello@sahisnuacharya.com.np">
+        Email me
+      </a>
+    </div>
+  </div>
+</Base>

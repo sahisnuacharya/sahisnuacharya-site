@@ -1,0 +1,25 @@
+---
+import Sparkle from './Sparkle.astro';
+
+interface Props {
+  items: string[];
+  label: string;
+}
+
+const { items, label } = Astro.props;
+---
+
+<section class="marquee" aria-label={label}>
+  <div class="marquee-track">
+    {[false, true].map((duplicate) => (
+      <ul class="marquee-group" aria-hidden={duplicate ? 'true' : undefined}>
+        {items.map((item) => (
+          <li>
+            <span>{item}</span>
+            <Sparkle />
+          </li>
+        ))}
+      </ul>
+    ))}
+  </div>
+</section>

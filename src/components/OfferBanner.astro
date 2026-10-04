@@ -1,0 +1,44 @@
+---
+import type { Offer } from '../lib/content';
+import { formatDate, formatNpr, formatUsd } from '../lib/format';
+
+interface Props {
+  offer: Offer;
+}
+
+const { offer } = Astro.props;
+const deal =
+  offer.discountType === 'percent' && offer.discountValue > 0 ? `${offer.discountValue}% off` : '';
+const nprText =
+  offer.priceNpr !== null
+    ? formatNpr(offer.priceNpr)
+    : offer.priceUsd !== null
+      ? formatUsd(offer.priceUsd)
+      : '';
+const usdText =
+  offer.priceUsd !== null
+    ? formatUsd(offer.priceUsd)
+    : offer.priceNpr !== null
+      ? formatNpr(offer.priceNpr)
+      : '';
+const hasPrice = nprText !== '';
+const contactHref = `/contact?offer=${offer.id}#contact-form`;
+---
+
+<div class="offer">
+  <p>
+    <strong>Limited offer:</strong>
+    {offer.title}
+    {offer.serviceName && !offer.title.includes(offer.serviceName) ? ` (${offer.serviceName})` : ''}
+    {deal && `, ${deal}`}
+    {hasPrice && (
+      <>
+        {', now '}
+        <span class="cur-npr">{nprText}</span>
+        <span class="cur-usd">{usdText}</span>
+      </>
+    )}
+    {offer.endsAt && `, until ${formatDate(offer.endsAt)}`}
+  </p>
+  <a href={contactHref}>Claim this offer</a>
+</div>

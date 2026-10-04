@@ -1,0 +1,32 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sahisnuacharya-site",
+  "main": "@astrojs/cloudflare/entrypoints/server",
+  "compatibility_date": "2026-09-30",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Database and file storage. Cloudflare creates both automatically on the first deploy.
+  "d1_databases": [{ "binding": "DB", "database_name": "sahisnuacharya-db" }],
+  "kv_namespaces": [{ "binding": "MEDIA" }],
+
+  // Your domain. Cloudflare attaches it on deploy because the domain is in your account.
+  "routes": [
+    { "pattern": "sahisnuacharya.com.np", "custom_domain": true },
+    { "pattern": "www.sahisnuacharya.com.np", "custom_domain": true },
+  ],
+  "workers_dev": true,
+
+  "vars": {
+    "SITE_URL": "https://sahisnuacharya.com.np",
+    // Public Turnstile site key. Leave empty until you create one (README, step 6).
+    "TURNSTILE_SITE_KEY": "",
+    // Where new contact message alerts go once email alerts are turned on.
+    "NOTIFY_EMAIL": "sahisnuacharya9@gmail.com",
+  },
+
+  // Email alerts for new contact messages (README, step 7).
+  // To turn on: delete the two slashes at the start of the next line.
+  // "send_email": [{ "name": "EMAIL", "destination_address": "sahisnuacharya9@gmail.com" }],
+
+  "observability": { "enabled": true },
+}

@@ -1,0 +1,108 @@
+---
+import Base from '../../layouts/Base.astro';
+import ContactBand from '../../components/ContactBand.astro';
+import Picture from '../../components/Picture.astro';
+import ProjectCard from '../../components/ProjectCard.astro';
+import { getProject, getSettings } from '../../lib/content';
+import { paragraphs } from '../../lib/format';
+import { fallbackImageUrl } from '../../lib/media';
+
+const slug = Astro.params.slug ?? '';
+const [settings, data] = await Promise.all([getSettings(), getProject(slug)]);
+if (!data) {
+  return Astro.rewrite('/404');
+}
+const { project, images, next } = data;
+const site = Astro.site ?? new URL('https://sahisnuacharya.com.np');
+const ogImage = project.cover ? fallbackImageUrl(project.cover) : null;
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'CreativeWork',
+  name: project.title,
+  description: project.summary,
+  url: new URL(`/work/${project.slug}`, site).toString(),
+  creator: { '@type': 'Person', name: settings.name, url: site.toString() },
+  genre: project.categoryName ?? undefined,
+  dateCreated: project.year ? String(project.year) : undefined,
+};
+const meta = [
+  { label: 'Client', value: project.client },
+  { label: 'Role', value: project.role },
+  { label: 'Category', value: project.categoryName ?? '' },
+  { label: 'Year', value: project.year ? String(project.year) : '' },
+].filter((m) => m.value);
+---
+
+<Base
+  settings={settings}
+  title={project.title}
+  description={project.summary || undefined}
+  image={ogImage}
+  ogType="article"
+  jsonLd={jsonLd}
+>
+  <article class="container">
+    <header class="page-head">
+      <p>
+        <a class="text-link" href="/work">
+          All work
+        </a>
+      </p>
+      <h1 class="display h-lg" style="margin-top: 16px; max-width: 18ch">
+        {project.title}
+      </h1>
+      {project.summary && <p class="lead muted">{project.summary}</p>}
+      {meta.length > 0 && (
+        <dl class="project-meta">
+          {meta.map((m) => (
+            <div>
+              <dt>{m.label}</dt>
+              <dd>{m.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </header>
+
+    <div class:list={['cover project-hero-cover', `tint-${project.tint}`]}>
+      {project.cover ? (
+        <Picture media={project.cover} sizes="(max-width: 1360px) 100vw, 1296px" eager />
+      ) : (
+        <span class="cover-word" aria-hidden="true">
+          {project.coverWord}
+        </span>
+      )}
+    </div>
+
+    {project.body && (
+      <div class="prose section-tight">
+        {paragraphs(project.body).map((p) => (
+          <p>{p}</p>
+        ))}
+      </div>
+    )}
+
+    {images.length > 0 && (
+      <section class="gallery section-tight" aria-label="Project images">
+        {images.map((image) => (
+          <figure>
+            <Picture media={image.media} sizes="(max-width: 1360px) 100vw, 1296px" />
+            {image.caption && <figcaption>{image.caption}</figcaption>}
+          </figure>
+        ))}
+      </section>
+    )}
+
+    {next && (
+      <section class="section" aria-labelledby="next-title">
+        <h2 class="display h-md" id="next-title" style="margin-bottom: 32px">
+          Next project
+        </h2>
+        <div style="max-width: 640px">
+          <ProjectCard project={next} />
+        </div>
+      </section>
+    )}
+  </article>
+  <ContactBand settings={settings} slot="before-footer" />
+</Base>

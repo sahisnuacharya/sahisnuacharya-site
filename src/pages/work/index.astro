@@ -1,0 +1,65 @@
+---
+import Base from '../../layouts/Base.astro';
+import ContactBand from '../../components/ContactBand.astro';
+import ProjectCard from '../../components/ProjectCard.astro';
+import { getSettings, listCategories, listProjects } from '../../lib/content';
+
+const requested = Astro.url.searchParams.get('category') ?? '';
+const [settings, categories] = await Promise.all([getSettings(), listCategories()]);
+const active = categories.find((c) => c.slug === requested) ?? null;
+const projects = await listProjects(active ? { categorySlug: active.slug } : {});
+const total = categories.reduce((sum, c) => sum + c.count, 0);
+const title = active ? `${active.name} work` : 'Work';
+---
+
+<Base
+  settings={settings}
+  title={title}
+  description={`Selected ${active ? active.name.toLowerCase() : 'branding, social media and print'} projects by ${settings.name}.`}
+>
+  <div class="container">
+    <header class="page-head">
+      <h1 class="display h-xl">Work</h1>
+      <p class="lead muted">Branding, social media and print projects from 2022 to now.</p>
+    </header>
+
+    {categories.length > 1 && (
+      <nav aria-label="Filter projects by category">
+        <ul class="filters">
+          <li>
+            <a href="/work" aria-current={active ? undefined : 'page'}>
+              All <span class="count">{total}</span>
+            </a>
+          </li>
+          {categories.map((c) => (
+            <li>
+              <a
+                href={`/work?category=${c.slug}`}
+                aria-current={active?.slug === c.slug ? 'page' : undefined}
+              >
+                {c.name} <span class="count">{c.count}</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+    )}
+
+    <section
+      class="section-tight"
+      style="padding-top: 0; padding-bottom: clamp(64px, 9vw, 104px)"
+      aria-label={active ? `${active.name} projects` : 'All projects'}
+    >
+      {projects.length > 0 ? (
+        <div class="work-grid">
+          {projects.map((project, i) => (
+            <ProjectCard project={project} headingLevel="h2" eager={i < 2} />
+          ))}
+        </div>
+      ) : (
+        <p class="lead muted">New projects are on the way. Check back soon.</p>
+      )}
+    </section>
+  </div>
+  <ContactBand settings={settings} slot="before-footer" />
+</Base>

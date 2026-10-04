@@ -1,0 +1,56 @@
+---
+import type { Settings } from '../lib/content';
+import { whatsappLink } from '../lib/format';
+import Picture from './Picture.astro';
+import Sparkle from './Sparkle.astro';
+
+interface Props {
+  settings: Settings;
+  showButton?: boolean;
+}
+
+const { settings, showButton = true } = Astro.props;
+---
+
+<section class="contact-band" aria-labelledby="contact-band-title">
+  <div class="container section">
+    <h2 class="contact-title display" id="contact-band-title">
+      <span>Let's work</span>
+      <span class="contact-face" aria-hidden="true">
+        {settings.contactPhoto ? (
+          <Picture media={settings.contactPhoto} alt="" sizes="180px" />
+        ) : (
+          <Sparkle size={64} />
+        )}
+      </span>
+      <span>together</span>
+    </h2>
+    <div class="contact-row">
+      {settings.email && (
+        <div>
+          <p class="muted">Tell me about your project:</p>
+          <a class="contact-email" href={`mailto:${settings.email}`}>
+            {settings.email}
+          </a>
+        </div>
+      )}
+      <div class="btn-row">
+        {showButton && (
+          <a class="btn btn-primary" href="/contact">
+            Start a project
+          </a>
+        )}
+        {settings.whatsapp && (
+          <a
+            class="btn btn-ghost"
+            href={whatsappLink(settings.whatsapp)}
+            target="_blank"
+            rel="noopener"
+          >
+            Chat on WhatsApp<span class="sr-only"> (opens in a new tab)</span>
+          </a>
+        )}
+      </div>
+    </div>
+  </div>
+</section>

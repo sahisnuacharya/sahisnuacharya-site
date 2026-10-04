@@ -1,0 +1,35 @@
+---
+import type { Project } from '../lib/content';
+import Picture from './Picture.astro';
+
+interface Props {
+  project: Project;
+  headingLevel?: 'h2' | 'h3';
+  eager?: boolean;
+}
+
+const { project, headingLevel = 'h3', eager = false } = Astro.props;
+const Heading = headingLevel;
+---
+
+<a class="card" href={`/work/${project.slug}`}>
+  <div class:list={['cover', `tint-${project.tint}`]}>
+    {project.cover ? (
+      <Picture
+        media={project.cover}
+        alt=""
+        sizes="(max-width: 760px) 100vw, (max-width: 1360px) 50vw, 640px"
+        eager={eager}
+      />
+    ) : (
+      <span class="cover-word" aria-hidden="true">
+        {project.coverWord}
+      </span>
+    )}
+  </div>
+  <div>
+    <Heading class="card-title">{project.title}</Heading>
+    {project.summary && <p class="card-text">{project.summary}</p>}
+    {project.categoryName && <span class="chip">{project.categoryName}</span>}
+  </div>
+</a>

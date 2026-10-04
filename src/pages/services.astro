@@ -1,0 +1,97 @@
+---
+import Base from '../layouts/Base.astro';
+import ContactBand from '../components/ContactBand.astro';
+import CurrencySwitch from '../components/CurrencySwitch.astro';
+import OfferBanner from '../components/OfferBanner.astro';
+import Price from '../components/Price.astro';
+import { getSettings, listActiveOffers, listServices } from '../lib/content';
+
+const [settings, services, offers] = await Promise.all([
+  getSettings(),
+  listServices(),
+  listActiveOffers(),
+]);
+const site = Astro.site ?? new URL('https://sahisnuacharya.com.np');
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'ProfessionalService',
+  name: `${settings.name} Design`,
+  url: new URL('/services', site).toString(),
+  areaServed: 'Worldwide',
+  address: { '@type': 'PostalAddress', addressLocality: 'Lalitpur', addressCountry: 'NP' },
+  hasOfferCatalog: {
+    '@type': 'OfferCatalog',
+    name: 'Design services',
+    itemListElement: services.map((s) => ({
+      '@type': 'Offer',
+      itemOffered: { '@type': 'Service', name: s.name, description: s.summary },
+      ...(s.priceUsd !== null
+        ? {
+            priceSpecification: {
+              '@type': 'PriceSpecification',
+              minPrice: s.priceUsd,
+              priceCurrency: 'USD',
+            },
+          }
+        : {}),
+    })),
+  },
+};
+---
+
+<Base
+  settings={settings}
+  title="Services and prices"
+  description={`Design services and starting prices from ${settings.name}: branding, logos, social media, posters and YouTube thumbnails.`}
+  jsonLd={jsonLd}
+>
+  <div class="container">
+    <header class="page-head section-head" style="margin-bottom: 0">
+      <div>
+        <h1 class="display h-xl">Services</h1>
+        <p class="lead muted">
+          Starting prices for the work I do most. Every project gets a fixed quote before we begin.
+        </p>
+      </div>
+      <CurrencySwitch />
+    </header>
+
+    <section class="section-tight" style="padding-top: 0" aria-label="Services and prices">
+      {offers.map((offer) => (
+        <OfferBanner offer={offer} />
+      ))}
+      <ul class="service-list">
+        {services.map((service) => (
+          <li class="service-row" id={service.slug}>
+            <h2>{service.name}</h2>
+            <div class="service-desc">
+              <p>{service.summary}</p>
+              {service.includes.length > 0 && (
+                <ul>
+                  {service.includes.map((item) => (
+                    <li>{item}</li>
+                  ))}
+                </ul>
+              )}
+              {service.delivery && <p style="margin-top: 10px">Delivery: {service.delivery}</p>}
+            </div>
+            <Price npr={service.priceNpr} usd={service.priceUsd} />
+          </li>
+        ))}
+      </ul>
+    </section>
+
+    <section class="section split" aria-labelledby="how-title">
+      <h2 class="display h-md" id="how-title">
+        How a project works
+      </h2>
+      <ol class="prose" style="padding-left: 1.2em">
+        <li>You tell me what you need through the contact form or WhatsApp.</li>
+        <li>I reply with questions, a fixed price and a timeline.</li>
+        <li>I share first concepts, then refine them with your feedback.</li>
+        <li>You get final files ready for print and the web.</li>
+      </ol>
+    </section>
+  </div>
+  <ContactBand settings={settings} slot="before-footer" />
+</Base>

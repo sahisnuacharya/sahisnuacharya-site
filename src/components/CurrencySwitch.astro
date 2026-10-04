@@ -1,0 +1,26 @@
+---
+const { currency } = Astro.locals;
+const path = Astro.url.pathname;
+---
+
+<form method="post" action="/api/prefs" data-currency-form>
+  <input type="hidden" name="back" value={path} />
+  <div class="segmented" role="group" aria-label="Show prices in">
+    <button
+      type="submit"
+      name="currency"
+      value="USD"
+      aria-pressed={currency === 'USD' ? 'true' : 'false'}
+    >
+      USD
+    </button>
+    <button
+      type="submit"
+      name="currency"
+      value="NPR"
+      aria-pressed={currency === 'NPR' ? 'true' : 'false'}
+    >
+      NPR
+    </button>
+  </div>
+</form>

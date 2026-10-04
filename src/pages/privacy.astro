@@ -1,0 +1,54 @@
+---
+import Base from '../layouts/Base.astro';
+import { getSettings } from '../lib/content';
+
+const settings = await getSettings();
+---
+
+<Base settings={settings} title="Privacy" description="How this website handles your information.">
+  <div class="container">
+    <header class="page-head">
+      <h1 class="display h-xl">Privacy</h1>
+      <p class="lead muted">Short version: I only keep what you send me, and I never sell it.</p>
+    </header>
+    <div class="prose section-tight" style="padding-top: 0">
+      <h2>What I collect</h2>
+      <p>
+        When you use the contact form, I receive your name, email address, message, the service and
+        budget you pick, and any file you attach. I use this only to reply to you and to work on
+        your project.
+      </p>
+      <p>
+        To stop spam, I keep a scrambled code made from your IP address. It cannot be turned back
+        into your IP address. The form is also protected by Cloudflare Turnstile, which checks that
+        you are a person.
+      </p>
+      <h2>Cookies</h2>
+      <p>
+        This site sets two small cookies only when you use the switches: one remembers light or dark
+        theme, the other remembers NPR or USD prices. There are no advertising or tracking cookies.
+      </p>
+      <p>
+        Visitor numbers are counted with Cloudflare Web Analytics, which does not use cookies and
+        does not track you across sites.
+      </p>
+      <h2>How long I keep it</h2>
+      <p>
+        Messages and attachments are kept until they are no longer needed for your project, and you
+        can ask me to delete them at any time.
+      </p>
+      <h2>Contact</h2>
+      <p>
+        For any privacy question or to delete your data, email
+        {settings.email ? (
+          <a class="text-link" href={`mailto:${settings.email}`}>
+            {settings.email}
+          </a>
+        ) : (
+          'me'
+        )}
+        .
+      </p>
+    </div>
+  </div>
+</Base>

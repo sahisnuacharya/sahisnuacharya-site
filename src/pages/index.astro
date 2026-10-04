@@ -1,0 +1,135 @@
+---
+import Base from '../layouts/Base.astro';
+import ContactBand from '../components/ContactBand.astro';
+import CurrencySwitch from '../components/CurrencySwitch.astro';
+import Marquee from '../components/Marquee.astro';
+import OfferBanner from '../components/OfferBanner.astro';
+import Picture from '../components/Picture.astro';
+import Price from '../components/Price.astro';
+import ProjectCard from '../components/ProjectCard.astro';
+import { getSettings, listActiveOffers, listProjects, listServices } from '../lib/content';
+import { fallbackImageUrl } from '../lib/media';
+import { personJsonLd } from '../lib/seo';
+
+const [settings, projects, services, offers] = await Promise.all([
+  getSettings(),
+  listProjects({ featuredOnly: true }),
+  listServices(),
+  listActiveOffers(),
+]);
+
+const featured = projects.slice(0, 6);
+const homeOffer = offers.find((o) => o.showOnHome) ?? null;
+const site = Astro.site ?? new URL('https://sahisnuacharya.com.np');
+const ogImage = settings.heroPhoto ? fallbackImageUrl(settings.heroPhoto) : null;
+---
+
+<Base settings={settings} image={ogImage} ogType="profile" jsonLd={personJsonLd(settings, site)}>
+  <section
+    class:list={['hero container', { 'has-photo': settings.heroPhoto }]}
+    aria-labelledby="hero-title"
+  >
+    <p class="hero-hello">Hi, I am</p>
+    <h1 class="hero-name display reveal" id="hero-title">
+      <span>{settings.firstName}</span>
+      <span class="line-2">{settings.lastName}</span>
+    </h1>
+    <p class:list={['sticker', { 'is-booked': !settings.available }]}>
+      {settings.available ? settings.availableText : settings.bookedText}
+    </p>
+    {settings.heroPhoto && (
+      <div class="hero-photo">
+        <Picture
+          media={settings.heroPhoto}
+          alt={`Photo of ${settings.name}`}
+          sizes="(max-width: 760px) 80vw, 440px"
+          eager
+        />
+      </div>
+    )}
+    <div class="hero-bottom">
+      {settings.heroIntro && <p class="hero-intro">{settings.heroIntro}</p>}
+      <div class="btn-row">
+        <a class="btn btn-primary" href="/contact">
+          Start a project
+        </a>
+        <a class="btn btn-ghost" href="/work">
+          View my work
+        </a>
+      </div>
+    </div>
+  </section>
+
+  {services.length > 0 && <Marquee items={services.map((s) => s.name)} label="Services I offer" />}
+
+  {(settings.aboutTitle || settings.aboutShort) && (
+    <section class="container section split" aria-labelledby="about-title">
+      <h2 class="display h-md" id="about-title">
+        {settings.aboutTitle}
+      </h2>
+      <div>
+        <p class="lead">{settings.aboutShort}</p>
+        <div class="btn-row" style="margin-top: 28px">
+          <a class="btn btn-ghost" href="/about">
+            More about me
+          </a>
+          {settings.cvFile && (
+            <a class="btn text-link" href={`/media/file/${settings.cvFile.id}`}>
+              Download CV
+            </a>
+          )}
+        </div>
+      </div>
+    </section>
+  )}
+
+  {featured.length > 0 && (
+    <section
+      class="container section-tight"
+      aria-labelledby="work-title"
+      style="padding-bottom: clamp(64px, 9vw, 104px)"
+    >
+      <div class="section-head">
+        <h2 class="display h-lg" id="work-title">
+          Selected work
+        </h2>
+        <a class="text-link" href="/work">
+          See all work
+        </a>
+      </div>
+      <div class="work-stagger">
+        {featured.map((project) => (
+          <ProjectCard project={project} />
+        ))}
+      </div>
+    </section>
+  )}
+
+  {services.length > 0 && (
+    <section class="container section" aria-labelledby="services-title" style="padding-top: 0">
+      <div class="section-head">
+        <h2 class="display h-lg" id="services-title">
+          Services
+        </h2>
+        <CurrencySwitch />
+      </div>
+      {homeOffer && <OfferBanner offer={homeOffer} />}
+      <ul class="service-list">
+        {services.map((service) => (
+          <li class="service-row">
+            <h3>{service.name}</h3>
+            <p class="service-desc">{service.summary}</p>
+            <Price npr={service.priceNpr} usd={service.priceUsd} />
+          </li>
+        ))}
+      </ul>
+      <p style="margin-top: 24px">
+        <a class="text-link" href="/services">
+          What each service includes
+        </a>
+      </p>
+    </section>
+  )}
+
+  <ContactBand settings={settings} slot="before-footer" />
+</Base>

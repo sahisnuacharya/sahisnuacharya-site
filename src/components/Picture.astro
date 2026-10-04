@@ -1,0 +1,41 @@
+---
+import type { MediaRef } from '../lib/content';
+import { imageUrl, srcset } from '../lib/media';
+
+interface Props {
+  media: MediaRef;
+  sizes: string;
+  alt?: string;
+  eager?: boolean;
+  class?: string;
+}
+
+const { media, sizes, alt, eager = false, class: className } = Astro.props;
+const widths = [...media.widths].sort((a, b) => a - b);
+const fallbackFormat = media.formats.includes('webp') ? 'webp' : (media.formats[0] ?? 'webp');
+const middle = widths[Math.floor(widths.length / 2)] ?? widths[0] ?? 960;
+const extraFormats = media.formats.filter((f) => f !== fallbackFormat);
+const mime: Record<string, string> = {
+  avif: 'image/avif',
+  webp: 'image/webp',
+  jpg: 'image/jpeg',
+  png: 'image/png',
+};
+---
+
+<picture class={className}>
+  {extraFormats.map((format) => (
+    <source type={mime[format] ?? `image/${format}`} srcset={srcset(media, format)} sizes={sizes} />
+  ))}
+  <img
+    src={imageUrl(media.id, middle, fallbackFormat)}
+    srcset={srcset(media, fallbackFormat)}
+    sizes={sizes}
+    alt={alt ?? media.alt}
+    width={media.width ?? undefined}
+    height={media.height ?? undefined}
+    loading={eager ? 'eager' : 'lazy'}
+    decoding={eager ? 'sync' : 'async'}
+    fetchpriority={eager ? 'high' : 'auto'}
+  />
+</picture>

@@ -1,0 +1,29 @@
+---
+import Base from '../layouts/Base.astro';
+import { FALLBACK_SETTINGS, getSettings } from '../lib/content';
+
+Astro.response.status = 404;
+const settings = await getSettings().catch(() => FALLBACK_SETTINGS);
+---
+
+<Base settings={settings} title="Page not found" noindex>
+  <div class="container section">
+    <p class="display h-xl" aria-hidden="true">
+      404
+    </p>
+    <h1 class="display h-md" style="margin-top: 16px">
+      This page went off the canvas.
+    </h1>
+    <p class="lead muted" style="margin-top: 16px; max-width: 40ch">
+      The link may be old, or the project may have been moved.
+    </p>
+    <div class="btn-row" style="margin-top: 32px">
+      <a class="btn btn-primary" href="/">
+        Go to the home page
+      </a>
+      <a class="btn btn-ghost" href="/work">
+        See my work
+      </a>
+    </div>
+  </div>
+</Base>

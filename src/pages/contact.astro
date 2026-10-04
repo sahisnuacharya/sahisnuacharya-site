@@ -1,0 +1,229 @@
+---
+import Base from '../layouts/Base.astro';
+import { getSettings, listActiveOffers, listServices } from '../lib/content';
+import { ACCEPT_ATTRIBUTE } from '../lib/contact';
+import { whatsappLink } from '../lib/format';
+import { env } from 'cloudflare:workers';
+
+const [settings, services, offers] = await Promise.all([
+  getSettings(),
+  listServices(),
+  listActiveOffers(),
+]);
+const params = Astro.url.searchParams;
+const sent = params.get('sent') === '1';
+const errorCode = params.get('error');
+const errorText: Record<string, string> = {
+  limit: 'You have sent several messages already. Please try again in an hour, or use WhatsApp.',
+  size: 'The file was too large. Please attach a file under 10 MB.',
+  invalid: 'Some details were missing or not valid. Please check the form and try again.',
+  server: 'Something went wrong while sending. Please try again, or use email or WhatsApp.',
+};
+const offerId = Number(params.get('offer'));
+const offer = offers.find((o) => o.id === offerId) ?? null;
+const prefill = offer ? `Hi Sahisnu, I would like to claim the offer "${offer.title}".` : '';
+const turnstileKey = env.TURNSTILE_SITE_KEY;
+---
+
+<Base
+  settings={settings}
+  title="Contact"
+  description={`Start a project with ${settings.name}. Send a message, attach a brief, or chat on WhatsApp.`}
+>
+  <div class="container">
+    <header class="page-head">
+      <h1 class="display h-xl">Let's talk</h1>
+      <p class="lead muted">Tell me about your project. I usually reply within a day.</p>
+    </header>
+
+    <div class="split section-tight" style="padding-top: 0">
+      <aside
+        aria-label="Other ways to reach me"
+        style="display: grid; gap: 24px; align-content: start"
+      >
+        {settings.email && (
+          <div>
+            <p class="muted">Email</p>
+            <a
+              class="contact-email"
+              style="font-size: clamp(20px, 2vw, 26px)"
+              href={`mailto:${settings.email}`}
+            >
+              {settings.email}
+            </a>
+          </div>
+        )}
+        {settings.whatsapp && (
+          <div>
+            <p class="muted">WhatsApp</p>
+            <a
+              class="btn btn-ghost"
+              style="margin-top: 8px"
+              href={whatsappLink(settings.whatsapp)}
+              target="_blank"
+              rel="noopener"
+            >
+              Chat on WhatsApp<span class="sr-only"> (opens in a new tab)</span>
+            </a>
+          </div>
+        )}
+        <div>
+          <p class="muted">Based in</p>
+          <p style="font-weight: 650">{settings.location}, working with clients everywhere</p>
+        </div>
+      </aside>
+
+      <div>
+        <div aria-live="polite" data-form-status>
+          {sent && (
+            <p class="notice is-success" role="status">
+              Thanks! Your message is on its way. I usually reply within a day.
+            </p>
+          )}
+          {errorCode && errorText[errorCode] && (
+            <p class="notice is-error" role="alert">
+              {errorText[errorCode]}
+            </p>
+          )}
+        </div>
+
+        <form
+          id="contact-form"
+          class="form"
+          method="post"
+          action="/api/contact"
+          enctype="multipart/form-data"
+          novalidate
+          data-contact-form
+          style="margin-top: 16px"
+        >
+          <div class="form-row">
+            <div class="field">
+              <label for="name">Your name</label>
+              <input
+                id="name"
+                name="name"
+                type="text"
+                autocomplete="name"
+                required
+                minlength="2"
+                maxlength="100"
+                aria-describedby="name-error"
+              />
+              <p class="field-error" id="name-error" data-error-for="name" hidden></p>
+            </div>
+            <div class="field">
+              <label for="email">Email address</label>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                autocomplete="email"
+                required
+                maxlength="200"
+                aria-describedby="email-error"
+              />
+              <p class="field-error" id="email-error" data-error-for="email" hidden></p>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="field">
+              <label for="service">
+                What do you need? <span class="muted">(optional)</span>
+              </label>
+              <select id="service" name="service">
+                <option value="">Choose a service</option>
+                {services.map((s) => (
+                  <option value={s.name} selected={offer?.serviceName === s.name}>
+                    {s.name}
+                  </option>
+                ))}
+                <option value="Something else">Something else</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="budget">
+                Budget <span class="muted">(optional)</span>
+              </label>
+              <input
+                id="budget"
+                name="budget"
+                type="text"
+                maxlength="100"
+                placeholder="For example NPR 20,000 or US$150"
+                aria-describedby="budget-error"
+              />
+              <p class="field-error" id="budget-error" data-error-for="budget" hidden></p>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="message">Message</label>
+            <textarea
+              id="message"
+              name="message"
+              required
+              minlength="10"
+              maxlength="5000"
+              aria-describedby="message-error"
+            >{prefill}</textarea>
+            <p class="field-error" id="message-error" data-error-for="message" hidden></p>
+          </div>
+
+          <div class="field">
+            <label for="attachment">
+              Attach a brief or reference <span class="muted">(optional)</span>
+            </label>
+            <input
+              id="attachment"
+              name="attachment"
+              type="file"
+              accept={ACCEPT_ATTRIBUTE}
+              aria-describedby="attachment-hint attachment-error"
+            />
+            <p class="hint" id="attachment-hint">
+              One file up to 10 MB: PDF, image, ZIP, Word, PowerPoint or text.
+            </p>
+            <p class="field-error" id="attachment-error" data-error-for="attachment" hidden></p>
+          </div>
+
+          <div class="honeypot" aria-hidden="true">
+            <label for="website">Leave this empty</label>
+            <input id="website" name="website" type="text" tabindex="-1" autocomplete="off" />
+          </div>
+
+          {turnstileKey && (
+            <div class="cf-turnstile" data-sitekey={turnstileKey} data-theme="auto"></div>
+          )}
+          <p class="field-error" data-error-for="form" hidden></p>
+
+          <div>
+            <button class="btn btn-primary" type="submit" data-submit>
+              Send message
+            </button>
+          </div>
+          <p class="hint muted" style="font-size: 14px">
+            I only use your details to reply. See the{' '}
+            <a href="/privacy" class="text-link">
+              privacy note
+            </a>
+            .
+          </p>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  {turnstileKey && (
+    <script
+      is:inline
+      src="https://challenges.cloudflare.com/turnstile/v0/api.js"
+      async
+      defer
+    ></script>
+  )}
+  <script>
+    import '../scripts/contact';
+  </script>
+</Base>

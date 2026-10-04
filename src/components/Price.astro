@@ -1,0 +1,24 @@
+---
+import { formatNpr, formatUsd } from '../lib/format';
+
+interface Props {
+  npr: number | null;
+  usd: number | null;
+  from?: boolean;
+}
+
+const { npr, usd, from = true } = Astro.props;
+const hasAny = npr !== null || usd !== null;
+---
+
+{hasAny ? (
+  <p class="price">
+    {from && <span class="from">From </span>}
+    <span class="cur-npr">{npr !== null ? formatNpr(npr) : 'Quote on request'}</span>
+    <span class="cur-usd">{usd !== null ? formatUsd(usd) : 'Quote on request'}</span>
+  </p>
+) : (
+  <p class="price">
+    <span class="from">Quote on request</span>
+  </p>
+)}

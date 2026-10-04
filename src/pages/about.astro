@@ -1,0 +1,117 @@
+---
+import Base from '../layouts/Base.astro';
+import ContactBand from '../components/ContactBand.astro';
+import Picture from '../components/Picture.astro';
+import { getSettings, listExperience } from '../lib/content';
+import { paragraphs } from '../lib/format';
+import { fallbackImageUrl } from '../lib/media';
+import { personJsonLd } from '../lib/seo';
+
+const [settings, experience] = await Promise.all([getSettings(), listExperience()]);
+const work = experience.filter((e) => e.kind === 'work');
+const education = experience.filter((e) => e.kind === 'education');
+const site = Astro.site ?? new URL('https://sahisnuacharya.com.np');
+const photo = settings.heroPhoto;
+---
+
+<Base
+  settings={settings}
+  title="About"
+  description={`About ${settings.name}, a visual designer in ${settings.location} with four years of brand and campaign work.`}
+  image={photo ? fallbackImageUrl(photo) : null}
+  ogType="profile"
+  jsonLd={personJsonLd(settings, site)}
+>
+  <div class="container">
+    <header class="page-head">
+      <h1 class="display h-xl">About me</h1>
+    </header>
+
+    <section class="split section-tight" style="padding-top: 0" aria-label="Introduction">
+      <div>
+        {photo ? (
+          <div
+            class="cover"
+            style="aspect-ratio: 4 / 5; max-width: 420px; background: var(--surface)"
+          >
+            <Picture
+              media={photo}
+              alt={`Photo of ${settings.name}`}
+              sizes="(max-width: 760px) 100vw, 420px"
+              eager
+            />
+          </div>
+        ) : (
+          <p class="display h-md">{settings.aboutTitle}</p>
+        )}
+      </div>
+      <div class="prose">
+        {paragraphs(settings.aboutBody || settings.aboutShort).map((p) => (
+          <p>{p}</p>
+        ))}
+        <div class="btn-row" style="margin-top: 28px">
+          <a class="btn btn-primary" href="/contact">
+            Work with me
+          </a>
+          {settings.cvFile && (
+            <a class="btn btn-ghost" href={`/media/file/${settings.cvFile.id}`}>
+              Download CV
+            </a>
+          )}
+        </div>
+      </div>
+    </section>
+
+    {work.length > 0 && (
+      <section class="section split" aria-labelledby="experience-title">
+        <h2 class="display h-md" id="experience-title">
+          Experience
+        </h2>
+        <ul class="timeline">
+          {work.map((item) => (
+            <li>
+              <span class="org">{item.organization}</span>
+              <span class="period">{item.period}</span>
+              <span class="meta">
+                {item.title}
+                {item.location && `, ${item.location}`}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
+
+    {(education.length > 0 || settings.tools.length > 0) && (
+      <section class="section split" style="padding-top: 0" aria-labelledby="education-title">
+        <h2 class="display h-md" id="education-title">
+          Education and tools
+        </h2>
+        <div>
+          {education.length > 0 && (
+            <ul class="timeline">
+              {education.map((item) => (
+                <li>
+                  <span class="org">{item.title}</span>
+                  {item.period && <span class="period">{item.period}</span>}
+                  <span class="meta">{item.organization}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {settings.tools.length > 0 && (
+            <>
+              <h3 class="sr-only">Tools</h3>
+              <ul class="tool-list" style="margin-top: 28px">
+                {settings.tools.map((tool) => (
+                  <li>{tool}</li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      </section>
+    )}
+  </div>
+  <ContactBand settings={settings} slot="before-footer" />
+</Base>

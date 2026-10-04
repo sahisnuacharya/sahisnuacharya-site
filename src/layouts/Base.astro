@@ -1,0 +1,241 @@
+---
+import '../styles/global.css';
+import type { Settings } from '../lib/content';
+import { FALLBACK_SETTINGS } from '../lib/content';
+import { whatsappLink } from '../lib/format';
+
+interface Props {
+  title?: string | undefined;
+  description?: string | undefined;
+  settings?: Settings | undefined;
+  image?: string | null | undefined;
+  noindex?: boolean | undefined;
+  jsonLd?: Record<string, unknown> | Record<string, unknown>[] | undefined;
+  ogType?: 'website' | 'article' | 'profile' | undefined;
+}
+
+const {
+  title,
+  description,
+  settings = FALLBACK_SETTINGS,
+  image,
+  noindex = false,
+  jsonLd,
+  ogType = 'website',
+} = Astro.props;
+
+const site = Astro.site ?? new URL('https://sahisnuacharya.com.np');
+const fullTitle = title
+  ? `${title} | ${settings.name}`
+  : `${settings.name}, ${settings.role.toLowerCase()}`;
+const metaDescription = description ?? settings.seoDescription;
+const canonical = new URL(
+  Astro.url.pathname === '/' ? '/' : Astro.url.pathname.replace(/\/$/, ''),
+  site,
+);
+const ogImage = new URL(image ?? '/og.png', site);
+const { theme, currency, nonce } = Astro.locals;
+const path = Astro.url.pathname;
+
+const nav = [
+  { href: '/', label: 'Home' },
+  { href: '/work', label: 'Work' },
+  { href: '/services', label: 'Services' },
+  { href: '/about', label: 'About' },
+  { href: '/contact', label: 'Contact' },
+];
+const isActive = (href: string) =>
+  href === '/' ? path === '/' : path === href || path.startsWith(`${href}/`);
+const year = new Date().getFullYear();
+const speculation = JSON.stringify({
+  prefetch: [{ source: 'document', where: { href_matches: '/*' }, eagerness: 'moderate' }],
+});
+---
+
+<!doctype html>
+<html lang="en" data-theme={theme ?? undefined} data-currency={currency}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={metaDescription} />
+    <link rel="canonical" href={canonical} />
+    {noindex && <meta name="robots" content="noindex" />}
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#F5F6F8" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0E1018" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <link
+      rel="preload"
+      href="/fonts/bricolage-grotesque.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+
+    <meta property="og:type" content={ogType} />
+    <meta property="og:site_name" content={settings.name} />
+    <meta property="og:title" content={title ?? settings.name} />
+    <meta property="og:description" content={metaDescription} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:locale" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <script is:inline nonce={nonce}>
+      document.documentElement.classList.add('js');
+    </script>
+    <script is:inline type="speculationrules" nonce={nonce} set:html={speculation} />
+    {jsonLd && (
+      <script
+        is:inline
+        type="application/ld+json"
+        nonce={nonce}
+        set:html={JSON.stringify(jsonLd)}
+      />
+    )}
+  </head>
+  <body>
+    <a class="skip-link" href="#main">
+      Skip to content
+    </a>
+
+    <header class="site-header">
+      <div class="container">
+        <a class="brand" href="/">
+          {settings.name}
+        </a>
+
+        <nav class="main-nav" id="main-nav" aria-label="Main">
+          <ul>
+            {nav.map((item) => (
+              <li>
+                <a href={item.href} aria-current={isActive(item.href) ? 'page' : undefined}>
+                  {item.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+
+        <div class="header-actions">
+          <form method="post" action="/api/prefs" data-theme-form>
+            <input type="hidden" name="back" value={path} />
+            <button
+              class="icon-btn"
+              type="submit"
+              name="toggle"
+              value="theme"
+              aria-label="Switch color theme"
+            >
+              <svg
+                class="theme-icon-moon"
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path>
+              </svg>
+              <svg
+                class="theme-icon-sun"
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="4"></circle>
+                <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path>
+              </svg>
+            </button>
+          </form>
+          <a class="btn btn-primary btn-sm header-cta" href="/contact">
+            Start a project
+          </a>
+          <button
+            class="icon-btn menu-btn"
+            type="button"
+            aria-expanded="false"
+            aria-controls="main-nav"
+            data-menu-button
+          >
+            <span class="sr-only">Menu</span>
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              aria-hidden="true"
+            >
+              <path d="M4 7h16M4 12h16M4 17h16"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <slot />
+    </main>
+
+    <slot name="before-footer" />
+
+    <footer class="site-footer">
+      <div class="container">
+        <span>
+          © {year} {settings.name}
+        </span>
+        <ul>
+          {settings.socials.map((s) => (
+            <li>
+              <a href={s.url} rel="me noopener" target="_blank">
+                {s.label}
+                <span class="sr-only"> (opens in a new tab)</span>
+              </a>
+            </li>
+          ))}
+          <li>
+            <a href="/privacy">Privacy</a>
+          </li>
+        </ul>
+      </div>
+    </footer>
+
+    {settings.whatsapp && (
+      <a
+        class="whatsapp"
+        href={whatsappLink(
+          settings.whatsapp,
+          'Hi Sahisnu, I found your website and would like to talk about a project.',
+        )}
+        target="_blank"
+        rel="noopener"
+        aria-label="Chat on WhatsApp (opens in a new tab)"
+      >
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M17.47 14.38c-.3-.15-1.75-.86-2.02-.96-.27-.1-.47-.15-.67.15-.2.3-.77.96-.94 1.16-.17.2-.35.22-.64.07-.3-.15-1.25-.46-2.38-1.47-.88-.79-1.47-1.76-1.65-2.06-.17-.3-.02-.46.13-.6.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.03-.52-.07-.15-.67-1.61-.92-2.2-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.79.37-.27.3-1.04 1.02-1.04 2.48s1.07 2.88 1.21 3.08c.15.2 2.1 3.2 5.08 4.49.71.31 1.26.49 1.69.63.71.22 1.36.19 1.87.12.57-.09 1.75-.72 2-1.41.25-.69.25-1.29.17-1.41-.07-.12-.27-.2-.57-.35zM12.05 21.8h-.01a9.8 9.8 0 0 1-5-1.37l-.36-.21-3.72.98.99-3.63-.23-.37a9.8 9.8 0 0 1-1.5-5.22c0-5.42 4.41-9.83 9.84-9.83 2.63 0 5.1 1.03 6.95 2.88a9.77 9.77 0 0 1 2.88 6.96c0 5.42-4.41 9.83-9.84 9.83zm8.37-18.2A11.75 11.75 0 0 0 12.05.13C5.53.13.22 5.44.22 11.97c0 2.09.55 4.12 1.58 5.92L.12 24l6.26-1.64a11.8 11.8 0 0 0 5.66 1.44h.01c6.52 0 11.83-5.31 11.83-11.84 0-3.16-1.23-6.13-3.46-8.37z" />
+        </svg>
+      </a>
+    )}
+
+    <script>
+      import '../scripts/site';
+    </script>
+  </body>
+</html>
