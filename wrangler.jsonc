@@ -19,7 +19,7 @@
   "vars": {
     "SITE_URL": "https://sahisnuacharya.com.np",
     // Public Turnstile site key. Leave empty until you create one (README, step 6).
-    "TURNSTILE_SITE_KEY": "",
+    "TURNSTILE_SITE_KEY": "0x4AAAAAAFTLsTUmERw70j5J",
     // Where new contact message alerts go.
     "NOTIFY_EMAIL": "sahisnuacharya9@gmail.com",
     // The only person who can sign in to the admin panel.
