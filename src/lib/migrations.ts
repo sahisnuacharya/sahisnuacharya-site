@@ -225,6 +225,23 @@ const seed: string[] = [
     ('seo_description', 'Sahisnu Acharya is a visual designer in Lalitpur, Nepal, creating brand identities, social media campaigns, posters and YouTube thumbnails for clients worldwide.')`,
 ];
 
+const adminLogin: string[] = [
+  // One row only: the pending emailed sign-in code for the admin.
+  `CREATE TABLE IF NOT EXISTS login_codes (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    code_hash TEXT NOT NULL DEFAULT '',
+    expires_at TEXT NOT NULL DEFAULT (datetime('now')),
+    attempts INTEGER NOT NULL DEFAULT 0,
+    locked_until TEXT,
+    last_sent_at TEXT,
+    window_start TEXT,
+    sent_in_window INTEGER NOT NULL DEFAULT 0
+  )`,
+  `INSERT OR IGNORE INTO login_codes (id) VALUES (1)`,
+  `CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions (expires_at)`,
+];
+
 export const MIGRATIONS: Migration[] = [
   { version: 1, name: 'initial schema and starter content', statements: [...schema, ...seed] },
+  { version: 2, name: 'admin sign-in codes', statements: adminLogin },
 ];

@@ -1,0 +1,79 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { getDb } from '../../../lib/db';
+import { formatDate } from '../../../lib/format';
+
+const db = await getDb();
+const filter = Astro.url.searchParams.get('status');
+const status = filter === 'read' || filter === 'archived' ? filter : 'new';
+
+const [{ results: messages }, counts] = await Promise.all([
+  db
+    .prepare(
+      `SELECT id, name, email, service, body, attachment_name, status, created_at FROM messages
+       WHERE status = ? ORDER BY created_at DESC, id DESC LIMIT 100`,
+    )
+    .bind(status)
+    .all<{ id: number; name: string; email: string; service: string; body: string; attachment_name: string | null; status: string; created_at: string }>(),
+  db
+    .prepare(
+      `SELECT
+        (SELECT COUNT(*) FROM messages WHERE status = 'new') AS new,
+        (SELECT COUNT(*) FROM messages WHERE status = 'read') AS read,
+        (SELECT COUNT(*) FROM messages WHERE status = 'archived') AS archived`,
+    )
+    .first<{ new: number; read: number; archived: number }>(),
+]);
+
+const tabs = [
+  { key: 'new', label: 'New', count: counts?.new ?? 0 },
+  { key: 'read', label: 'Read', count: counts?.read ?? 0 },
+  { key: 'archived', label: 'Archived', count: counts?.archived ?? 0 },
+] as const;
+---
+
+<AdminLayout title="Messages" active="messages">
+  <div class="admin-head">
+    <div>
+      <h1>Messages</h1>
+      <p>Everything sent through your contact form. You also get an email for each one.</p>
+    </div>
+  </div>
+
+  <nav aria-label="Message folders">
+    <ul class="tabs">
+      {
+        tabs.map((t) => (
+          <li>
+            <a href={t.key === 'new' ? '/admin/messages' : `/admin/messages?status=${t.key}`} aria-current={status === t.key ? 'page' : undefined}>
+              {t.label} ({t.count})
+            </a>
+          </li>
+        ))
+      }
+    </ul>
+  </nav>
+
+  {
+    messages.length === 0 ? (
+      <p class="empty">Nothing here.</p>
+    ) : (
+      <ul class="item-list">
+        {messages.map((m) => (
+          <li class:list={{ unread: m.status === 'new' }}>
+            <div class="item-main">
+              <div style="min-width: 0">
+                <a href={`/admin/messages/${m.id}`}>{m.name}</a>
+                <span class="item-meta">
+                  {m.service && `${m.service}: `}{m.body.slice(0, 110)}{m.body.length > 110 ? '...' : ''}
+                </span>
+              </div>
+            </div>
+            {m.attachment_name && <span class="pill pill-draft">File</span>}
+            <span class="item-meta">{formatDate(m.created_at.slice(0, 10))}</span>
+          </li>
+        ))}
+      </ul>
+    )
+  }
+</AdminLayout>

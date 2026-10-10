@@ -1,0 +1,121 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { getDb } from '../../lib/db';
+import { offerState } from '../../lib/admin';
+import { todayInNepal } from '../../lib/content';
+import { formatDate } from '../../lib/format';
+
+const db = await getDb();
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  if (form.get('_action') === 'availability') {
+    const value = form.get('available') === '1' ? '1' : '0';
+    await db.prepare("INSERT INTO settings (key, value) VALUES ('available', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(value).run();
+    return Astro.redirect('/admin?msg=saved', 303);
+  }
+}
+
+const [counts, offers, settingsRows, recent] = await Promise.all([
+  db
+    .prepare(
+      `SELECT
+        (SELECT COUNT(*) FROM projects WHERE status = 'published') AS published,
+        (SELECT COUNT(*) FROM projects WHERE status = 'draft') AS drafts,
+        (SELECT COUNT(*) FROM projects WHERE status = 'published' AND cover_media_id IS NULL) AS no_cover,
+        (SELECT COUNT(*) FROM services WHERE status = 'published' AND (price_npr IS NULL OR price_usd IS NULL)) AS no_price,
+        (SELECT COUNT(*) FROM messages WHERE status = 'new') AS new_messages,
+        (SELECT COUNT(*) FROM media WHERE kind = 'image') AS images`,
+    )
+    .first<{ published: number; drafts: number; no_cover: number; no_price: number; new_messages: number; images: number }>(),
+  db.prepare('SELECT status, starts_at, ends_at FROM offers').all<{ status: string; starts_at: string | null; ends_at: string | null }>(),
+  db.prepare("SELECT key, value FROM settings WHERE key IN ('available', 'hero_photo', 'contact_photo', 'cv_file')").all<{ key: string; value: string }>(),
+  db
+    .prepare("SELECT id, name, body, status, created_at FROM messages WHERE status != 'archived' ORDER BY created_at DESC, id DESC LIMIT 5")
+    .all<{ id: number; name: string; body: string; status: string; created_at: string }>(),
+]);
+
+const settings = new Map(settingsRows.results.map((r) => [r.key, r.value]));
+const today = todayInNepal();
+const liveOffers = offers.results.filter((o) => offerState(o, today) === 'live').length;
+const available = settings.get('available') !== '0';
+const c = counts ?? { published: 0, drafts: 0, no_cover: 0, no_price: 0, new_messages: 0, images: 0 };
+
+const checklist = [
+  { done: !!settings.get('hero_photo'), text: 'Add your photo for the Home page', href: '/admin/settings#photos' },
+  { done: c.no_cover === 0, text: c.no_cover === 0 ? 'Every published project has a cover image' : `${c.no_cover} published projects still need a cover image`, href: '/admin/projects' },
+  { done: c.no_price === 0, text: c.no_price === 0 ? 'Every service has NPR and USD prices' : `${c.no_price} services still need NPR or USD prices`, href: '/admin/services' },
+  { done: !!settings.get('cv_file'), text: 'Upload your CV as a PDF', href: '/admin/settings#photos' },
+  { done: !!settings.get('contact_photo'), text: 'Optional: a small photo for the "Let\'s work together" circle', href: '/admin/settings#photos' },
+];
+---
+
+<AdminLayout title="Dashboard" active="dashboard">
+  <div class="admin-head">
+    <div>
+      <h1>Dashboard</h1>
+      <p>Everything you change here shows on the live site right away.</p>
+    </div>
+    <a class="btn btn-primary btn-sm" href="/admin/projects/new">New project</a>
+  </div>
+
+  <div class="stats">
+    <a class="stat" href="/admin/messages"><strong>{c.new_messages}</strong><span>New messages</span></a>
+    <a class="stat" href="/admin/projects"><strong>{c.published}</strong><span>Live projects{c.drafts > 0 && `, ${c.drafts} drafts`}</span></a>
+    <a class="stat" href="/admin/offers"><strong>{liveOffers}</strong><span>Live offers</span></a>
+    <a class="stat" href="/admin/media"><strong>{c.images}</strong><span>Images</span></a>
+  </div>
+
+  <section class="card" aria-labelledby="availability-title">
+    <h2 id="availability-title">Availability</h2>
+    <p class="hint" style="margin-bottom: 16px">This sets the round sticker on the Home page.</p>
+    <form method="post" class="form-actions" style="margin-top: 0">
+      <input type="hidden" name="_action" value="availability" />
+      <p style="font-weight: 650">Now showing: <span class:list={['pill', available ? 'pill-live' : 'pill-draft']}>{available ? 'Available for freelance' : 'Booked for now'}</span></p>
+      <button class="btn btn-ghost btn-sm" type="submit" name="available" value={available ? '0' : '1'}>
+        {available ? 'Switch to "Booked for now"' : 'Switch to "Available for freelance"'}
+      </button>
+    </form>
+  </section>
+
+  <section class="card" aria-labelledby="checklist-title">
+    <h2 id="checklist-title">Finish your site</h2>
+    <ul class="checklist">
+      {
+        checklist.map((item) => (
+          <li>
+            <span class={item.done ? 'done' : 'todo'} aria-hidden="true">{item.done ? '✓' : '○'}</span>
+            <span>
+              {item.done ? item.text : <a class="text-link" href={item.href}>{item.text}</a>}
+              <span class="sr-only">{item.done ? ' (done)' : ' (to do)'}</span>
+            </span>
+          </li>
+        ))
+      }
+    </ul>
+  </section>
+
+  <section class="card" aria-labelledby="recent-title">
+    <h2 id="recent-title">Latest messages</h2>
+    {
+      recent.results.length === 0 ? (
+        <p class="hint">No messages yet. They will show here when someone uses your contact form.</p>
+      ) : (
+        <ul class="item-list">
+          {recent.results.map((m) => (
+            <li class:list={{ unread: m.status === 'new' }}>
+              <div class="item-main">
+                <div style="min-width: 0">
+                  <a href={`/admin/messages/${m.id}`}>{m.name}</a>
+                  <span class="item-meta">{m.body.slice(0, 90)}{m.body.length > 90 ? '...' : ''}</span>
+                </div>
+              </div>
+              <span class="item-meta">{formatDate(m.created_at.slice(0, 10))}</span>
+              {m.status === 'new' && <span class="pill pill-new">New</span>}
+            </li>
+          ))}
+        </ul>
+      )
+    }
+  </section>
+</AdminLayout>

@@ -8,7 +8,8 @@ import { paragraphs } from '../../lib/format';
 import { fallbackImageUrl } from '../../lib/media';
 
 const slug = Astro.params.slug ?? '';
-const [settings, data] = await Promise.all([getSettings(), getProject(slug)]);
+const previewing = Astro.url.searchParams.get('preview') === '1' && Astro.locals.admin !== null;
+const [settings, data] = await Promise.all([getSettings(), getProject(slug, { includeDrafts: previewing })]);
 if (!data) {
   return Astro.rewrite('/404');
 }
@@ -39,6 +40,7 @@ const meta = [
   description={project.summary || undefined}
   image={ogImage}
   ogType="article"
+  noindex={previewing}
   jsonLd={jsonLd}
 >
   <article class="container">

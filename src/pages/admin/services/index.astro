@@ -1,0 +1,62 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { getDb } from '../../../lib/db';
+import { moveRow, text } from '../../../lib/admin';
+import { formatNpr, formatUsd } from '../../../lib/format';
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const id = Number(text(form, 'id', 12));
+  const dir = text(form, 'dir', 4);
+  if (form.get('_action') === 'move' && Number.isInteger(id) && (dir === 'up' || dir === 'down')) {
+    await moveRow('services', id, dir);
+  }
+  return Astro.redirect('/admin/services?msg=moved', 303);
+}
+
+const db = await getDb();
+const { results: services } = await db
+  .prepare('SELECT id, name, summary, price_npr, price_usd, status FROM services ORDER BY sort, id')
+  .all<{ id: number; name: string; summary: string; price_npr: number | null; price_usd: number | null; status: string }>();
+---
+
+<AdminLayout title="Services and prices" active="services">
+  <div class="admin-head">
+    <div>
+      <h1>Services and prices</h1>
+      <p>Shown on the Home page and the Services page, in this order. Prices show as "From NPR ... / From US$...". Leave a price empty to show "Quote on request".</p>
+    </div>
+    <a class="btn btn-primary btn-sm" href="/admin/services/new">New service</a>
+  </div>
+
+  {
+    services.length === 0 ? (
+      <p class="empty">No services yet.</p>
+    ) : (
+      <ul class="item-list">
+        {services.map((s, i) => (
+          <li>
+            <div class="item-main">
+              <div style="min-width: 0">
+                <a href={`/admin/services/${s.id}`}>{s.name}</a>
+                <span class="item-meta">
+                  {s.price_npr !== null ? formatNpr(s.price_npr) : 'NPR price missing'}, {s.price_usd !== null ? formatUsd(s.price_usd) : 'USD price missing'}
+                </span>
+              </div>
+            </div>
+            <span class:list={['pill', s.status === 'published' ? 'pill-live' : 'pill-draft']}>{s.status === 'published' ? 'Shown' : 'Hidden'}</span>
+            <div class="item-actions">
+              <form method="post">
+                <input type="hidden" name="_action" value="move" />
+                <input type="hidden" name="id" value={s.id} />
+                <button class="btn btn-ghost btn-xs" type="submit" name="dir" value="up" disabled={i === 0} aria-label={`Move ${s.name} up`}>Up</button>
+                <button class="btn btn-ghost btn-xs" type="submit" name="dir" value="down" disabled={i === services.length - 1} aria-label={`Move ${s.name} down`}>Down</button>
+              </form>
+              <a class="btn btn-ghost btn-xs" href={`/admin/services/${s.id}`} aria-label={`Edit ${s.name}`}>Edit</a>
+            </div>
+          </li>
+        ))}
+      </ul>
+    )
+  }
+</AdminLayout>

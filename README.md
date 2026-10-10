@@ -66,6 +66,23 @@ Until then the form is still protected by a hidden bot trap and a limit of 5 mes
 
 ---
 
+## Step 8. The admin panel
+
+Open `https://sahisnuacharya.com.np/admin`. Nobody can enter without signing in, and the pages are hidden from Google.
+
+**Sign in with an emailed code (works right away).** Enter the admin email, a 6 digit code arrives in that inbox, type it in. The code lasts 10 minutes, and wrong guesses lock the form for a while.
+
+**Sign in with Google (optional, one time setup).**
+1. Go to console.cloud.google.com and create a project (free).
+2. APIs and Services, then OAuth consent screen. Choose External, fill the app name and your email, and under Test users add the admin Gmail address.
+3. Credentials, then Create credentials, then OAuth client ID. Type: Web application. Authorized redirect URI: `https://sahisnuacharya.com.np/api/auth/google/callback`
+4. Copy the Client ID into `GOOGLE_CLIENT_ID` in `wrangler.jsonc`.
+5. In Cloudflare, open the worker, Settings, Variables and Secrets, add a secret named `GOOGLE_CLIENT_SECRET` with the client secret.
+
+The admin email is `ADMIN_EMAIL` in `wrangler.jsonc`. Only that address can sign in, by either method.
+
+What you can do: add and reorder projects (drafts stay hidden until published, with a private preview), run offers with start and end dates, set NPR and USD prices, edit the Home and About text, upload photos and a CV, read contact messages and download their files, and switch the availability sticker.
+
 ## For developers
 
 | Command         | What it does                                                                           |

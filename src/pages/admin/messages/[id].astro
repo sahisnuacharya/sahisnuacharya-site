@@ -1,0 +1,98 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import DangerZone from '../../../components/admin/DangerZone.astro';
+import { env } from 'cloudflare:workers';
+import { getDb } from '../../../lib/db';
+import { formatBytes } from '../../../lib/admin';
+import { formatDate } from '../../../lib/format';
+
+const db = await getDb();
+const id = Number(Astro.params.id);
+if (!Number.isInteger(id) || id < 1) return Astro.rewrite('/404');
+
+interface Message {
+  id: number;
+  name: string;
+  email: string;
+  service: string;
+  budget: string;
+  body: string;
+  attachment_key: string | null;
+  attachment_name: string | null;
+  attachment_size: number | null;
+  status: 'new' | 'read' | 'archived';
+  created_at: string;
+}
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const action = form.get('_action');
+  if (action === 'delete') {
+    const row = await db.prepare('SELECT attachment_key FROM messages WHERE id = ?').bind(id).first<{ attachment_key: string | null }>();
+    if (row?.attachment_key) await env.MEDIA.delete(row.attachment_key);
+    await db.prepare('DELETE FROM messages WHERE id = ?').bind(id).run();
+    return Astro.redirect('/admin/messages?msg=deleted', 303);
+  }
+  const next = action === 'unread' ? 'new' : action === 'archive' ? 'archived' : action === 'read' ? 'read' : null;
+  if (next) {
+    await db.prepare('UPDATE messages SET status = ? WHERE id = ?').bind(next, id).run();
+    return Astro.redirect(next === 'archived' ? '/admin/messages?msg=saved' : `/admin/messages/${id}?msg=saved`, 303);
+  }
+}
+
+const message = await db.prepare('SELECT * FROM messages WHERE id = ?').bind(id).first<Message>();
+if (!message) return Astro.rewrite('/404');
+
+// Opening a new message marks it as read.
+if (message.status === 'new') {
+  await db.prepare("UPDATE messages SET status = 'read' WHERE id = ?").bind(id).run();
+  message.status = 'read';
+}
+
+const subject = encodeURIComponent(`Re: your message${message.service ? ` about ${message.service}` : ''}`);
+---
+
+<AdminLayout title={`Message from ${message.name}`} active="messages">
+  <a class="back-link" href="/admin/messages">All messages</a>
+  <div class="admin-head">
+    <div>
+      <h1>{message.name}</h1>
+      <p>{formatDate(message.created_at.slice(0, 10))}</p>
+    </div>
+    <a class="btn btn-primary btn-sm" href={`mailto:${message.email}?subject=${subject}`}>Reply by email</a>
+  </div>
+
+  <section class="card">
+    <dl class="meta-list">
+      <dt>Email</dt>
+      <dd><a class="text-link" href={`mailto:${message.email}`}>{message.email}</a></dd>
+      {message.service && <><dt>Service</dt><dd>{message.service}</dd></>}
+      {message.budget && <><dt>Budget</dt><dd>{message.budget}</dd></>}
+      {
+        message.attachment_key && message.attachment_name && (
+          <>
+            <dt>File</dt>
+            <dd>
+              <a class="text-link" href={`/api/admin/attachment/${message.id}`} download>{message.attachment_name}</a>
+              {message.attachment_size ? ` (${formatBytes(message.attachment_size)})` : ''}
+            </dd>
+          </>
+        )
+      }
+    </dl>
+    <p class="message-body">{message.body}</p>
+  </section>
+
+  <div class="form-actions">
+    <form method="post">
+      <input type="hidden" name="_action" value="unread" />
+      <button class="btn btn-ghost btn-sm" type="submit">Mark as unread</button>
+    </form>
+    <form method="post">
+      <input type="hidden" name="_action" value="archive" />
+      <button class="btn btn-ghost btn-sm" type="submit">Archive</button>
+    </form>
+  </div>
+
+  <DangerZone label="Delete this message" warning="The message and any file it came with are removed. This cannot be undone." />
+</AdminLayout>

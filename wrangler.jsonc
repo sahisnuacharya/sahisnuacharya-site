@@ -20,12 +20,15 @@
     "SITE_URL": "https://sahisnuacharya.com.np",
     // Public Turnstile site key. Leave empty until you create one (README, step 6).
     "TURNSTILE_SITE_KEY": "",
-    // Where new contact message alerts go once email alerts are turned on.
+    // Where new contact message alerts go.
     "NOTIFY_EMAIL": "sahisnuacharya9@gmail.com",
+    // The only person who can sign in to the admin panel.
+    "ADMIN_EMAIL": "sahisnuacharya9@gmail.com",
+    // Public Google sign-in client ID. Paste it here after creating it (README, admin setup).
+    "GOOGLE_CLIENT_ID": "",
   },
 
-  // Email alerts for new contact messages (README, step 7).
-  // To turn on: delete the two slashes at the start of the next line.
+  // Email alerts and sign-in codes. This is already switched on.
   "send_email": [{ "name": "EMAIL", "destination_address": "sahisnuacharya9@gmail.com" }],
 
   "observability": { "enabled": true },

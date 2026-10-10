@@ -1,0 +1,110 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { getDb } from '../../lib/db';
+import { deleteMedia, formatBytes, listMedia, mediaInUse, text, thumbUrl, MEDIA_ID_PATTERN } from '../../lib/admin';
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const id = text(form, 'id', 40);
+  if (MEDIA_ID_PATTERN.test(id)) {
+    if (form.get('_action') === 'alt') {
+      const db = await getDb();
+      await db.prepare('UPDATE media SET alt = ? WHERE id = ?').bind(text(form, 'alt', 300), id).run();
+      return Astro.redirect('/admin/media?msg=saved', 303);
+    }
+    if (form.get('_action') === 'delete') {
+      await deleteMedia(id);
+      return Astro.redirect('/admin/media?msg=deleted', 303);
+    }
+  }
+  return Astro.redirect('/admin/media', 303);
+}
+
+const [all, used] = await Promise.all([listMedia(), mediaInUse()]);
+const images = all.filter((m) => m.kind === 'image');
+const files = all.filter((m) => m.kind === 'file');
+---
+
+<AdminLayout title="Media" active="media">
+  <div class="admin-head">
+    <div>
+      <h1>Media</h1>
+      <p>Images are resized and compressed in your browser before upload, so the site stays fast. You can also upload straight from a project, offer or settings page.</p>
+    </div>
+    <label class="btn btn-primary btn-sm">
+      Upload images
+      <input class="sr-only" type="file" multiple accept="image/jpeg,image/png,image/webp,image/avif,image/gif" data-library-upload />
+    </label>
+  </div>
+  <p class="upload-status" role="status" aria-live="polite" data-library-status style="margin-bottom: 16px"></p>
+
+  <section aria-labelledby="images-title">
+    <h2 id="images-title" class="sr-only">Images</h2>
+    {
+      images.length === 0 ? (
+        <p class="empty">No images yet. Click "Upload images" to add some.</p>
+      ) : (
+        <ul class="media-grid">
+          {images.map((m) => {
+            const thumb = thumbUrl(m);
+            return (
+              <li class="media-card">
+                <div class="image-preview">{thumb && <img src={thumb} alt="" loading="lazy" />}</div>
+                <p class="item-meta">
+                  {m.originalName || m.id}
+                  <br />
+                  {m.width} x {m.height}, {formatBytes(m.bytes)}
+                </p>
+                {used.has(m.id) && <span class="pill pill-live" style="align-self: flex-start">In use</span>}
+                <form method="post" class="field">
+                  <input type="hidden" name="_action" value="alt" />
+                  <input type="hidden" name="id" value={m.id} />
+                  <label for={`alt-${m.id}`} style="font-size: 14px">Description for screen readers</label>
+                  <input id={`alt-${m.id}`} name="alt" type="text" maxlength="300" value={m.alt} />
+                  <button class="btn btn-ghost btn-xs" type="submit">Save description</button>
+                </form>
+                <details>
+                  <summary class="link-btn" style="color: var(--danger)">Delete image</summary>
+                  <form method="post">
+                    <input type="hidden" name="_action" value="delete" />
+                    <input type="hidden" name="id" value={m.id} />
+                    <p class="hint" style="margin: 8px 0">{used.has(m.id) ? 'This image is used on the site. It will be removed from those places too.' : 'This cannot be undone.'}</p>
+                    <button class="btn btn-danger btn-xs" type="submit">Yes, delete</button>
+                  </form>
+                </details>
+              </li>
+            );
+          })}
+        </ul>
+      )
+    }
+  </section>
+
+  <section class="card" style="margin-top: 32px" aria-labelledby="files-title">
+    <h2 id="files-title">Files</h2>
+    <p class="hint">PDF files such as your CV. Upload a CV from Settings.</p>
+    {
+      files.length === 0 ? (
+        <p class="hint" style="margin-top: 12px">No files yet.</p>
+      ) : (
+        <ul class="item-list" style="margin-top: 16px">
+          {files.map((f) => (
+            <li>
+              <div class="item-main">
+                <div>
+                  <a href={`/media/file/${f.id}`} target="_blank" rel="noopener">{f.originalName || f.id}</a>
+                  <span class="item-meta">{formatBytes(f.bytes)}{used.has(f.id) ? ', in use as your CV' : ''}</span>
+                </div>
+              </div>
+              <form method="post" class="item-actions">
+                <input type="hidden" name="_action" value="delete" />
+                <input type="hidden" name="id" value={f.id} />
+                <button class="btn btn-ghost btn-xs" type="submit" aria-label={`Delete ${f.originalName}`}>Delete</button>
+              </form>
+            </li>
+          ))}
+        </ul>
+      )
+    }
+  </section>
+</AdminLayout>

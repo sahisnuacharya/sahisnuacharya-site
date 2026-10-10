@@ -1,0 +1,216 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { getDb } from '../../../lib/db';
+import { moveRow, nextSort, text } from '../../../lib/admin';
+
+const db = await getDb();
+const TEXT_KEYS = ['hero_intro', 'about_title', 'about_short', 'about_body', 'tools'] as const;
+const LIMITS: Record<(typeof TEXT_KEYS)[number], number> = { hero_intro: 300, about_title: 160, about_short: 400, about_body: 4000, tools: 300 };
+
+let experienceError = '';
+let errorId = 0;
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const action = text(form, '_action', 30);
+  const id = Number(text(form, 'id', 12));
+  const dir = text(form, 'dir', 4);
+
+  if (action === 'text') {
+    await db.batch(
+      TEXT_KEYS.map((key) =>
+        db
+          .prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+          .bind(key, text(form, key, LIMITS[key])),
+      ),
+    );
+    return Astro.redirect('/admin/pages?msg=saved', 303);
+  }
+  if (action === 'move' && Number.isInteger(id) && (dir === 'up' || dir === 'down')) {
+    await moveRow('experience', id, dir);
+    return Astro.redirect('/admin/pages?msg=moved#experience', 303);
+  }
+  if (action === 'delete' && Number.isInteger(id)) {
+    await db.prepare('DELETE FROM experience WHERE id = ?').bind(id).run();
+    return Astro.redirect('/admin/pages?msg=deleted#experience', 303);
+  }
+  if (action === 'save' || action === 'add') {
+    const kind = text(form, 'kind', 10) === 'education' ? 'education' : 'work';
+    const title = text(form, 'title', 120);
+    const organization = text(form, 'organization', 120);
+    const location = text(form, 'location', 120);
+    const period = text(form, 'period', 60);
+    if (!title || !organization) {
+      experienceError = 'Please enter both a title and an organization.';
+      errorId = action === 'add' ? 0 : id;
+    } else if (action === 'add') {
+      await db
+        .prepare('INSERT INTO experience (kind, title, organization, location, period, sort) VALUES (?, ?, ?, ?, ?, ?)')
+        .bind(kind, title, organization, location, period, await nextSort('experience'))
+        .run();
+      return Astro.redirect('/admin/pages?msg=created#experience', 303);
+    } else {
+      await db
+        .prepare('UPDATE experience SET kind = ?, title = ?, organization = ?, location = ?, period = ? WHERE id = ?')
+        .bind(kind, title, organization, location, period, id)
+        .run();
+      return Astro.redirect('/admin/pages?msg=saved#experience', 303);
+    }
+  }
+}
+
+const { results } = await db.prepare('SELECT key, value FROM settings').all<{ key: string; value: string }>();
+const s = new Map(results.map((r) => [r.key, r.value]));
+const get = (key: string) => s.get(key) ?? '';
+
+const { results: experience } = await db
+  .prepare('SELECT id, kind, title, organization, location, period FROM experience ORDER BY sort, id')
+  .all<{ id: number; kind: string; title: string; organization: string; location: string; period: string }>();
+---
+
+<AdminLayout title="Pages" active="pages">
+  <div class="admin-head">
+    <div>
+      <h1>Pages</h1>
+      <p>The words on your Home and About pages, and your experience list.</p>
+    </div>
+  </div>
+
+  <form method="post" class="stack" novalidate>
+    <input type="hidden" name="_action" value="text" />
+    <section class="card form-grid" aria-labelledby="home-text-h">
+      <h2 id="home-text-h">Home page</h2>
+      <div class="field">
+        <label for="hero_intro">Intro under your name</label>
+        <textarea id="hero_intro" name="hero_intro" rows="3" maxlength="300">{get('hero_intro')}</textarea>
+      </div>
+    </section>
+
+    <section class="card form-grid" aria-labelledby="about-text-h">
+      <h2 id="about-text-h">About page</h2>
+      <div class="field">
+        <label for="about_title">Big sentence at the top</label>
+        <input id="about_title" name="about_title" type="text" maxlength="160" value={get('about_title')} />
+      </div>
+      <div class="field">
+        <label for="about_short">Short version</label>
+        <textarea id="about_short" name="about_short" rows="3" maxlength="400" aria-describedby="about-short-hint">{get('about_short')}</textarea>
+        <p class="hint" id="about-short-hint">Used when the full story below is empty.</p>
+      </div>
+      <div class="field">
+        <label for="about_body">Full story</label>
+        <textarea id="about_body" name="about_body" rows="9" maxlength="4000" aria-describedby="about-body-hint">{get('about_body')}</textarea>
+        <p class="hint" id="about-body-hint">Leave an empty line between paragraphs.</p>
+      </div>
+      <div class="field">
+        <label for="tools">Tools you use</label>
+        <input id="tools" name="tools" type="text" maxlength="300" value={get('tools')} aria-describedby="tools-hint" />
+        <p class="hint" id="tools-hint">Separate with commas, for example Photoshop, Illustrator, Figma.</p>
+      </div>
+    </section>
+
+    <div class="form-actions">
+      <button class="btn btn-primary" type="submit">Save pages</button>
+    </div>
+  </form>
+
+  <section class="card" id="experience" aria-labelledby="exp-h" style="margin-top: 24px">
+    <h2 id="exp-h">Experience and education</h2>
+    <p class="hint" style="margin-bottom: 16px">Shown on the About page, in this order.</p>
+    {experienceError && errorId === 0 && <p class="notice is-error" role="alert">{experienceError}</p>}
+
+    <ul class="item-list">
+      {
+        experience.map((e, i) => (
+          <li style="display: block">
+            <details open={errorId === e.id}>
+              <summary style="cursor: pointer; font-weight: 650">
+                {e.title} <span class="item-meta">at {e.organization}{e.period && `, ${e.period}`}</span>
+              </summary>
+              {experienceError && errorId === e.id && <p class="notice is-error" role="alert">{experienceError}</p>}
+              <form method="post" class="form-grid" style="margin-top: 14px" novalidate>
+                <input type="hidden" name="_action" value="save" />
+                <input type="hidden" name="id" value={e.id} />
+                <div class="form-row">
+                  <div class="field">
+                    <label for={`kind-${e.id}`}>Type</label>
+                    <select id={`kind-${e.id}`} name="kind">
+                      <option value="work" selected={e.kind === 'work'}>Work</option>
+                      <option value="education" selected={e.kind === 'education'}>Education</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for={`title-${e.id}`}>Title</label>
+                    <input id={`title-${e.id}`} name="title" type="text" maxlength="120" value={e.title} />
+                  </div>
+                  <div class="field">
+                    <label for={`org-${e.id}`}>Organization</label>
+                    <input id={`org-${e.id}`} name="organization" type="text" maxlength="120" value={e.organization} />
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="field">
+                    <label for={`loc-${e.id}`}>Place <span class="muted">(optional)</span></label>
+                    <input id={`loc-${e.id}`} name="location" type="text" maxlength="120" value={e.location} />
+                  </div>
+                  <div class="field">
+                    <label for={`period-${e.id}`}>Period <span class="muted">(optional)</span></label>
+                    <input id={`period-${e.id}`} name="period" type="text" maxlength="60" placeholder="For example 2022 to 2024" value={e.period} />
+                  </div>
+                </div>
+                <div class="form-actions" style="margin-top: 0">
+                  <button class="btn btn-primary btn-sm" type="submit">Save</button>
+                </div>
+              </form>
+              <div class="item-actions" style="margin-top: 12px">
+                <form method="post">
+                  <input type="hidden" name="_action" value="move" />
+                  <input type="hidden" name="id" value={e.id} />
+                  <button class="btn btn-ghost btn-xs" type="submit" name="dir" value="up" disabled={i === 0} aria-label={`Move ${e.title} up`}>Up</button>
+                  <button class="btn btn-ghost btn-xs" type="submit" name="dir" value="down" disabled={i === experience.length - 1} aria-label={`Move ${e.title} down`}>Down</button>
+                </form>
+                <form method="post">
+                  <input type="hidden" name="_action" value="delete" />
+                  <input type="hidden" name="id" value={e.id} />
+                  <button class="btn btn-danger btn-xs" type="submit" aria-label={`Delete ${e.title}`}>Delete</button>
+                </form>
+              </div>
+            </details>
+          </li>
+        ))
+      }
+    </ul>
+
+    <h3 style="margin: 24px 0 12px">Add an entry</h3>
+    <form method="post" class="form-grid" novalidate>
+      <input type="hidden" name="_action" value="add" />
+      <div class="form-row">
+        <div class="field">
+          <label for="new-kind">Type</label>
+          <select id="new-kind" name="kind"><option value="work">Work</option><option value="education">Education</option></select>
+        </div>
+        <div class="field">
+          <label for="new-title">Title</label>
+          <input id="new-title" name="title" type="text" maxlength="120" />
+        </div>
+        <div class="field">
+          <label for="new-org">Organization</label>
+          <input id="new-org" name="organization" type="text" maxlength="120" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label for="new-loc">Place <span class="muted">(optional)</span></label>
+          <input id="new-loc" name="location" type="text" maxlength="120" />
+        </div>
+        <div class="field">
+          <label for="new-period">Period <span class="muted">(optional)</span></label>
+          <input id="new-period" name="period" type="text" maxlength="60" />
+        </div>
+      </div>
+      <div class="form-actions" style="margin-top: 0">
+        <button class="btn btn-primary btn-sm" type="submit">Add entry</button>
+      </div>
+    </form>
+  </section>
+</AdminLayout>

@@ -1,0 +1,154 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import DangerZone from '../../../components/admin/DangerZone.astro';
+import { getDb } from '../../../lib/db';
+import { SLUG_PATTERN, checked, nextSort, slugify, text, wholeNumber } from '../../../lib/admin';
+
+const db = await getDb();
+const isNew = Astro.params.id === 'new';
+const id = Number(Astro.params.id);
+if (!isNew && (!Number.isInteger(id) || id < 1)) return Astro.rewrite('/404');
+
+interface ServiceForm {
+  name: string;
+  slug: string;
+  summary: string;
+  includes: string;
+  delivery: string;
+  price_npr: string;
+  price_usd: string;
+  published: boolean;
+}
+
+let values: ServiceForm = { name: '', slug: '', summary: '', includes: '', delivery: '', price_npr: '', price_usd: '', published: true };
+
+if (!isNew) {
+  const row = await db
+    .prepare('SELECT name, slug, summary, includes, delivery, price_npr, price_usd, status FROM services WHERE id = ?')
+    .bind(id)
+    .first<{ name: string; slug: string; summary: string; includes: string; delivery: string; price_npr: number | null; price_usd: number | null; status: string }>();
+  if (!row) return Astro.rewrite('/404');
+  let includes: string[] = [];
+  try {
+    includes = JSON.parse(row.includes) as string[];
+  } catch {
+    includes = [];
+  }
+  values = {
+    name: row.name,
+    slug: row.slug,
+    summary: row.summary,
+    includes: includes.join('\n'),
+    delivery: row.delivery,
+    price_npr: row.price_npr?.toString() ?? '',
+    price_usd: row.price_usd?.toString() ?? '',
+    published: row.status === 'published',
+  };
+}
+
+const errors: Partial<Record<keyof ServiceForm, string>> = {};
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  if (form.get('_action') === 'delete' && !isNew) {
+    await db.prepare('DELETE FROM services WHERE id = ?').bind(id).run();
+    return Astro.redirect('/admin/services?msg=deleted', 303);
+  }
+
+  values = {
+    name: text(form, 'name', 100),
+    slug: text(form, 'slug', 80) || slugify(text(form, 'name', 100)),
+    summary: text(form, 'summary', 300),
+    includes: text(form, 'includes', 2000),
+    delivery: text(form, 'delivery', 100),
+    price_npr: text(form, 'price_npr', 20),
+    price_usd: text(form, 'price_usd', 20),
+    published: checked(form, 'published'),
+  };
+  const npr = wholeNumber(form, 'price_npr');
+  const usd = wholeNumber(form, 'price_usd');
+  if (!values.name) errors.name = 'Please enter a name.';
+  if (!SLUG_PATTERN.test(values.slug)) errors.slug = 'Use only small letters, numbers and dashes.';
+  if (npr === 'invalid') errors.price_npr = 'Use whole numbers only, for example 6500.';
+  if (usd === 'invalid') errors.price_usd = 'Use whole numbers only, for example 45.';
+  const clash = await db.prepare('SELECT id FROM services WHERE slug = ? AND id != ?').bind(values.slug, isNew ? 0 : id).first();
+  if (clash) errors.slug = 'Another service already uses this web address.';
+
+  if (Object.keys(errors).length === 0) {
+    const includes = JSON.stringify(values.includes.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 20));
+    const status = values.published ? 'published' : 'draft';
+    const priceNpr = npr === 'invalid' ? null : npr;
+    const priceUsd = usd === 'invalid' ? null : usd;
+    if (isNew) {
+      await db
+        .prepare('INSERT INTO services (slug, name, summary, includes, delivery, price_npr, price_usd, status, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .bind(values.slug, values.name, values.summary, includes, values.delivery, priceNpr, priceUsd, status, await nextSort('services'))
+        .run();
+      return Astro.redirect('/admin/services?msg=created', 303);
+    }
+    await db
+      .prepare('UPDATE services SET slug = ?, name = ?, summary = ?, includes = ?, delivery = ?, price_npr = ?, price_usd = ?, status = ? WHERE id = ?')
+      .bind(values.slug, values.name, values.summary, includes, values.delivery, priceNpr, priceUsd, status, id)
+      .run();
+    return Astro.redirect('/admin/services?msg=saved', 303);
+  }
+}
+
+const err = (k: keyof ServiceForm) => (errors[k] ? `${k}-error` : undefined);
+---
+
+<AdminLayout title={isNew ? 'New service' : values.name} active="services">
+  <a class="back-link" href="/admin/services">All services</a>
+  <div class="admin-head">
+    <h1>{isNew ? 'New service' : 'Edit service'}</h1>
+  </div>
+  {Object.keys(errors).length > 0 && <p class="notice is-error" role="alert" style="margin-bottom: 20px">Some fields need a fix. They are marked below.</p>}
+
+  <form method="post" class="card form-grid" novalidate>
+    <div class="form-row">
+      <div class="field">
+        <label for="name">Service name</label>
+        <input id="name" name="name" type="text" required maxlength="100" value={values.name} data-slug-source aria-invalid={errors.name ? 'true' : undefined} aria-describedby={err('name')} />
+        {errors.name && <p class="field-error" id="name-error">{errors.name}</p>}
+      </div>
+      <div class="field">
+        <label for="slug">Web address part</label>
+        <input id="slug" name="slug" type="text" maxlength="80" value={values.slug} data-slug-target aria-invalid={errors.slug ? 'true' : undefined} aria-describedby={errors.slug ? 'slug-hint slug-error' : 'slug-hint'} />
+        <p class="hint" id="slug-hint">Fills in by itself from the name.</p>
+        {errors.slug && <p class="field-error" id="slug-error">{errors.slug}</p>}
+      </div>
+    </div>
+    <div class="field">
+      <label for="summary">Short description</label>
+      <input id="summary" name="summary" type="text" maxlength="300" value={values.summary} />
+    </div>
+    <div class="field">
+      <label for="includes">What is included</label>
+      <textarea id="includes" name="includes" maxlength="2000" aria-describedby="includes-hint">{values.includes}</textarea>
+      <p class="hint" id="includes-hint">One item per line. Shows as a list on the Services page.</p>
+    </div>
+    <div class="form-row">
+      <div class="field">
+        <label for="price_npr">Starting price in NPR</label>
+        <input id="price_npr" name="price_npr" type="text" inputmode="numeric" maxlength="12" placeholder="For example 6500" value={values.price_npr} aria-invalid={errors.price_npr ? 'true' : undefined} aria-describedby={err('price_npr')} />
+        {errors.price_npr && <p class="field-error" id="price_npr-error">{errors.price_npr}</p>}
+      </div>
+      <div class="field">
+        <label for="price_usd">Starting price in USD</label>
+        <input id="price_usd" name="price_usd" type="text" inputmode="numeric" maxlength="12" placeholder="For example 45" value={values.price_usd} aria-invalid={errors.price_usd ? 'true' : undefined} aria-describedby={err('price_usd')} />
+        {errors.price_usd && <p class="field-error" id="price_usd-error">{errors.price_usd}</p>}
+      </div>
+      <div class="field">
+        <label for="delivery">Delivery time <span class="muted">(optional)</span></label>
+        <input id="delivery" name="delivery" type="text" maxlength="100" placeholder="For example 3 to 5 days" value={values.delivery} />
+      </div>
+    </div>
+    <label class="check"><input type="checkbox" name="published" checked={values.published} /> Show this service on the site</label>
+    <div class="form-actions" style="margin-top: 4px">
+      <button class="btn btn-primary" type="submit">{isNew ? 'Create service' : 'Save changes'}</button>
+      <a class="btn btn-ghost" href="/admin/services">Cancel</a>
+    </div>
+  </form>
+
+  {!isNew && <DangerZone label="Delete this service" warning="Offers linked to it stay, but lose the link. This cannot be undone." />}
+</AdminLayout>

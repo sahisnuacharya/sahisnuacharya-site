@@ -1,0 +1,234 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import ImageField from '../../../components/admin/ImageField.astro';
+import DangerZone from '../../../components/admin/DangerZone.astro';
+import { getDb } from '../../../lib/db';
+import { checked, getMediaItem, isDate, text, wholeNumber } from '../../../lib/admin';
+
+const db = await getDb();
+const isNew = Astro.params.id === 'new';
+const id = Number(Astro.params.id);
+if (!isNew && (!Number.isInteger(id) || id < 1)) return Astro.rewrite('/404');
+
+interface OfferForm {
+  title: string;
+  details: string;
+  service_id: string;
+  discount_type: 'none' | 'percent' | 'fixed';
+  discount_value: string;
+  price_npr: string;
+  price_usd: string;
+  starts_at: string;
+  ends_at: string;
+  media: string;
+  show_on_home: boolean;
+  status: 'draft' | 'published';
+}
+
+let values: OfferForm = {
+  title: '', details: '', service_id: '', discount_type: 'percent', discount_value: '', price_npr: '', price_usd: '',
+  starts_at: '', ends_at: '', media: '', show_on_home: true, status: 'draft',
+};
+
+const { results: services } = await db.prepare('SELECT id, name FROM services ORDER BY sort, id').all<{ id: number; name: string }>();
+
+if (!isNew) {
+  const row = await db
+    .prepare('SELECT title, details, service_id, discount_type, discount_value, price_npr, price_usd, starts_at, ends_at, media_id, show_on_home, status FROM offers WHERE id = ?')
+    .bind(id)
+    .first<{
+      title: string; details: string; service_id: number | null; discount_type: OfferForm['discount_type']; discount_value: number;
+      price_npr: number | null; price_usd: number | null; starts_at: string | null; ends_at: string | null;
+      media_id: string | null; show_on_home: number; status: string;
+    }>();
+  if (!row) return Astro.rewrite('/404');
+  values = {
+    title: row.title, details: row.details, service_id: row.service_id?.toString() ?? '',
+    discount_type: row.discount_type, discount_value: row.discount_value ? String(row.discount_value) : '',
+    price_npr: row.price_npr?.toString() ?? '', price_usd: row.price_usd?.toString() ?? '',
+    starts_at: row.starts_at ?? '', ends_at: row.ends_at ?? '', media: row.media_id ?? '',
+    show_on_home: row.show_on_home === 1, status: row.status === 'published' ? 'published' : 'draft',
+  };
+}
+
+const errors: Partial<Record<keyof OfferForm, string>> = {};
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  if (form.get('_action') === 'delete' && !isNew) {
+    await db.prepare('DELETE FROM offers WHERE id = ?').bind(id).run();
+    return Astro.redirect('/admin/offers?msg=deleted', 303);
+  }
+
+  const type = text(form, 'discount_type', 10);
+  values = {
+    title: text(form, 'title', 100),
+    details: text(form, 'details', 500),
+    service_id: text(form, 'service_id', 10),
+    discount_type: type === 'percent' || type === 'fixed' ? type : 'none',
+    discount_value: text(form, 'discount_value', 10),
+    price_npr: text(form, 'price_npr', 20),
+    price_usd: text(form, 'price_usd', 20),
+    starts_at: text(form, 'starts_at', 10),
+    ends_at: text(form, 'ends_at', 10),
+    media: text(form, 'media', 40),
+    show_on_home: checked(form, 'show_on_home'),
+    status: text(form, 'status', 12) === 'published' ? 'published' : 'draft',
+  };
+
+  const percent = wholeNumber(form, 'discount_value');
+  const npr = wholeNumber(form, 'price_npr');
+  const usd = wholeNumber(form, 'price_usd');
+  if (!values.title) errors.title = 'Please enter a title for the offer.';
+  if (values.discount_type === 'percent') {
+    if (percent === null || percent === 'invalid' || percent < 1 || percent > 99) errors.discount_value = 'Enter a percentage between 1 and 99.';
+  }
+  if (npr === 'invalid') errors.price_npr = 'Use whole numbers only, for example 5000.';
+  if (usd === 'invalid') errors.price_usd = 'Use whole numbers only, for example 40.';
+  if (values.starts_at && !isDate(values.starts_at)) errors.starts_at = 'Please pick a valid date.';
+  if (values.ends_at && !isDate(values.ends_at)) errors.ends_at = 'Please pick a valid date.';
+  if (!errors.starts_at && !errors.ends_at && values.starts_at && values.ends_at && values.ends_at < values.starts_at) {
+    errors.ends_at = 'The end date must be on or after the start date.';
+  }
+  if (values.service_id && !services.some((s) => String(s.id) === values.service_id)) values.service_id = '';
+  const media = values.media ? await getMediaItem(values.media) : null;
+  if (!media || media.kind !== 'image') values.media = '';
+
+  if (Object.keys(errors).length === 0) {
+    const discountValue = values.discount_type === 'percent' && typeof percent === 'number' ? percent : 0;
+    const binds = [
+      values.title, values.details, values.service_id ? Number(values.service_id) : null, values.discount_type, discountValue,
+      npr === 'invalid' ? null : npr, usd === 'invalid' ? null : usd,
+      values.starts_at || null, values.ends_at || null, values.media || null, values.show_on_home ? 1 : 0, values.status,
+    ];
+    if (isNew) {
+      const result = await db
+        .prepare(
+          `INSERT INTO offers (title, details, service_id, discount_type, discount_value, price_npr, price_usd, starts_at, ends_at, media_id, show_on_home, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(...binds)
+        .run();
+      return Astro.redirect(`/admin/offers/${result.meta.last_row_id}?msg=${values.status === 'published' ? 'published' : 'created'}`, 303);
+    }
+    await db
+      .prepare(
+        `UPDATE offers SET title = ?, details = ?, service_id = ?, discount_type = ?, discount_value = ?, price_npr = ?, price_usd = ?,
+           starts_at = ?, ends_at = ?, media_id = ?, show_on_home = ?, status = ?, updated_at = datetime('now') WHERE id = ?`,
+      )
+      .bind(...binds, id)
+      .run();
+    const wasPublished = Astro.url.searchParams.get('was') === 'published';
+    const msg = values.status === 'published' ? 'published' : wasPublished ? 'unpublished' : 'saved';
+    return Astro.redirect(`/admin/offers/${id}?msg=${msg}`, 303);
+  }
+}
+
+const mediaItem = values.media ? await getMediaItem(values.media) : null;
+const err = (k: keyof OfferForm) => (errors[k] ? `${k}-error` : undefined);
+const wasPublished = !isNew && values.status === 'published';
+---
+
+<AdminLayout title={isNew ? 'New offer' : values.title} active="offers">
+  <a class="back-link" href="/admin/offers">All offers</a>
+  <div class="admin-head">
+    <h1>{isNew ? 'New offer' : 'Edit offer'}</h1>
+  </div>
+  {Object.keys(errors).length > 0 && <p class="notice is-error" role="alert" style="margin-bottom: 20px">Some fields need a fix. They are marked below.</p>}
+
+  <form method="post" class="stack" novalidate action={wasPublished ? '?was=published' : undefined}>
+    <section class="card form-grid" aria-labelledby="offer-title-h">
+      <h2 id="offer-title-h">The offer</h2>
+      <div class="field">
+        <label for="title">Title</label>
+        <input id="title" name="title" type="text" required maxlength="100" placeholder="For example Dashain logo offer" value={values.title} aria-invalid={errors.title ? 'true' : undefined} aria-describedby={err('title')} />
+        {errors.title && <p class="field-error" id="title-error">{errors.title}</p>}
+      </div>
+      <div class="field">
+        <label for="details">Details <span class="muted">(optional)</span></label>
+        <textarea id="details" name="details" rows="3" maxlength="500">{values.details}</textarea>
+      </div>
+      <div class="field">
+        <label for="service_id">Applies to</label>
+        <select id="service_id" name="service_id">
+          <option value="" selected={values.service_id === ''}>Any service</option>
+          {services.map((s) => <option value={s.id} selected={values.service_id === String(s.id)}>{s.name}</option>)}
+        </select>
+      </div>
+    </section>
+
+    <section class="card form-grid" aria-labelledby="price-h">
+      <h2 id="price-h">Discount</h2>
+      <div class="form-row">
+        <div class="field">
+          <label for="discount_type">Type</label>
+          <select id="discount_type" name="discount_type">
+            <option value="percent" selected={values.discount_type === 'percent'}>Percentage off</option>
+            <option value="fixed" selected={values.discount_type === 'fixed'}>Special price</option>
+            <option value="none" selected={values.discount_type === 'none'}>No discount, just a message</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="discount_value">Percent off</label>
+          <input id="discount_value" name="discount_value" type="text" inputmode="numeric" maxlength="3" placeholder="For example 20" value={values.discount_value} aria-invalid={errors.discount_value ? 'true' : undefined} aria-describedby={errors.discount_value ? 'discount_value-hint discount_value-error' : 'discount_value-hint'} />
+          <p class="hint" id="discount_value-hint">Used when the type is Percentage off.</p>
+          {errors.discount_value && <p class="field-error" id="discount_value-error">{errors.discount_value}</p>}
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label for="price_npr">Offer price in NPR <span class="muted">(optional)</span></label>
+          <input id="price_npr" name="price_npr" type="text" inputmode="numeric" maxlength="12" value={values.price_npr} aria-invalid={errors.price_npr ? 'true' : undefined} aria-describedby={err('price_npr')} />
+          {errors.price_npr && <p class="field-error" id="price_npr-error">{errors.price_npr}</p>}
+        </div>
+        <div class="field">
+          <label for="price_usd">Offer price in USD <span class="muted">(optional)</span></label>
+          <input id="price_usd" name="price_usd" type="text" inputmode="numeric" maxlength="12" value={values.price_usd} aria-invalid={errors.price_usd ? 'true' : undefined} aria-describedby={err('price_usd')} />
+          {errors.price_usd && <p class="field-error" id="price_usd-error">{errors.price_usd}</p>}
+        </div>
+      </div>
+    </section>
+
+    <section class="card form-grid" aria-labelledby="dates-h">
+      <h2 id="dates-h">When</h2>
+      <p class="hint">Leave both empty to keep the offer on until you unpublish it. Dates use Nepal time.</p>
+      <div class="form-row">
+        <div class="field">
+          <label for="starts_at">Starts on</label>
+          <input id="starts_at" name="starts_at" type="date" value={values.starts_at} aria-invalid={errors.starts_at ? 'true' : undefined} aria-describedby={err('starts_at')} />
+          {errors.starts_at && <p class="field-error" id="starts_at-error">{errors.starts_at}</p>}
+        </div>
+        <div class="field">
+          <label for="ends_at">Ends on</label>
+          <input id="ends_at" name="ends_at" type="date" value={values.ends_at} aria-invalid={errors.ends_at ? 'true' : undefined} aria-describedby={err('ends_at')} />
+          {errors.ends_at && <p class="field-error" id="ends_at-error">{errors.ends_at}</p>}
+        </div>
+      </div>
+      <label class="check"><input type="checkbox" name="show_on_home" checked={values.show_on_home} /> Show the banner on the Home page</label>
+    </section>
+
+    <section class="card form-grid" aria-labelledby="offer-img-h">
+      <h2 id="offer-img-h">Image</h2>
+      <ImageField name="media" label="Offer image (optional)" value={mediaItem} />
+    </section>
+
+    <div class="form-actions">
+      {
+        values.status === 'published' ? (
+          <>
+            <button class="btn btn-primary" type="submit" name="status" value="published">Save changes</button>
+            <button class="btn btn-ghost" type="submit" name="status" value="draft">Unpublish</button>
+          </>
+        ) : (
+          <>
+            <button class="btn btn-primary" type="submit" name="status" value="published">Publish offer</button>
+            <button class="btn btn-ghost" type="submit" name="status" value="draft">Save as draft</button>
+          </>
+        )
+      }
+      <a class="btn btn-ghost" href="/admin/offers">Cancel</a>
+    </div>
+  </form>
+
+  {!isNew && <DangerZone label="Delete this offer" warning="The offer disappears from the site. This cannot be undone." />}
+</AdminLayout>

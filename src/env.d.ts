@@ -5,5 +5,6 @@ declare namespace App {
     currency: import('./lib/format').Currency;
     theme: 'light' | 'dark' | null;
     nonce: string;
+    admin: import('./lib/auth').AdminSession | null;
   }
 }

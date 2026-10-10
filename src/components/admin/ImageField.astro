@@ -1,0 +1,33 @@
+---
+import type { MediaRef } from '../../lib/content';
+import { thumbUrl } from '../../lib/admin';
+
+interface Props {
+  name: string;
+  label: string;
+  value: MediaRef | null;
+  hint?: string;
+}
+
+const { name, label, value, hint } = Astro.props;
+const preview = value ? thumbUrl(value) : null;
+const id = `img-${name}`;
+---
+
+<div class="image-field" data-image-field>
+  <span class="label" id={`${id}-label`} style="font-weight: 650">{label}</span>
+  {hint && <p class="hint">{hint}</p>}
+  <input type="hidden" name={name} value={value?.id ?? ''} data-image-input />
+  <div class="image-preview" data-image-preview>
+    {preview ? <img src={preview} alt="Current image" /> : <span>No image yet</span>}
+  </div>
+  <div class="image-buttons">
+    <label class="btn btn-ghost btn-xs">
+      Upload new
+      <input class="sr-only" type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/gif" data-image-upload aria-describedby={`${id}-label`} />
+    </label>
+    <button class="btn btn-ghost btn-xs" type="button" data-image-library>Choose from library</button>
+    <button class="btn btn-ghost btn-xs" type="button" data-image-remove hidden={!value}>Remove</button>
+  </div>
+  <p class="upload-status" role="status" aria-live="polite" data-upload-status></p>
+</div>

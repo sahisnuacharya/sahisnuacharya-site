@@ -1,4 +1,5 @@
 import { defineMiddleware } from 'astro:middleware';
+import { getAdminSession } from './lib/auth';
 import type { Currency } from './lib/format';
 
 const CANONICAL_HOST = 'sahisnuacharya.com.np';
@@ -51,6 +52,48 @@ export const onRequest = defineMiddleware(async (context, next) => {
 
   const nonce = randomNonce();
   context.locals.nonce = nonce;
+  context.locals.admin = null;
+
+  // Private area: admin pages and admin APIs need a signed-in session.
+  const path = url.pathname;
+  const isAdminPage = path === '/admin' || path.startsWith('/admin/');
+  const isAdminApi = path.startsWith('/api/admin/');
+  const isAuthApi = path.startsWith('/api/auth/');
+  const isPrivate = isAdminPage || isAdminApi || isAuthApi;
+
+  if (isPrivate && !['GET', 'HEAD'].includes(context.request.method)) {
+    // Blocks forms and scripts posted from other websites.
+    const origin = context.request.headers.get('Origin') ?? '';
+    let sameOrigin = false;
+    try {
+      sameOrigin = new URL(origin).host === url.host;
+    } catch {
+      sameOrigin = false;
+    }
+    if (!sameOrigin) {
+      return new Response('Forbidden', { status: 403 });
+    }
+  }
+
+  if (isAdminPage || isAdminApi) {
+    context.locals.admin = await getAdminSession(context.cookies, url);
+    const isLoginPage = path === '/admin/login';
+    if (!context.locals.admin && !isLoginPage) {
+      if (isAdminApi) {
+        return Response.json({ ok: false, message: 'Please sign in again.' }, { status: 401 });
+      }
+      return context.redirect('/admin/login', 303);
+    }
+    if (context.locals.admin && isLoginPage && context.request.method === 'GET') {
+      return context.redirect('/admin', 303);
+    }
+  }
+
+  // Draft previews: the signed-in admin can open an unpublished project on its public page.
+  const isPreview = path.startsWith('/work/') && url.searchParams.get('preview') === '1';
+  if (isPreview) {
+    context.locals.admin = await getAdminSession(context.cookies, url);
+  }
 
   const original = await next();
   // Copy so headers are always writable, even on redirects and streamed responses.
@@ -69,11 +112,17 @@ export const onRequest = defineMiddleware(async (context, next) => {
     headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   }
 
+  if (isPrivate) {
+    headers.set('Cache-Control', 'no-store');
+    headers.set('X-Robots-Tag', 'noindex, nofollow');
+  }
+
   const type = headers.get('Content-Type') ?? '';
   if (type.includes('text/html')) {
     headers.set('Content-Security-Policy', buildCsp(nonce, url.protocol === 'https:'));
     // Pages change when the admin publishes, and they depend on the visitor's theme and currency.
-    headers.set('Cache-Control', 'private, no-cache');
+    if (!isPrivate) headers.set('Cache-Control', 'private, no-cache');
+    if (isPreview) headers.set('X-Robots-Tag', 'noindex, nofollow');
     headers.append('Vary', 'Cookie');
   }
   return response;

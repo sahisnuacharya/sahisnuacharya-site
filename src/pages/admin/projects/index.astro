@@ -1,0 +1,179 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { getDb } from '../../../lib/db';
+import { SLUG_PATTERN, moveRow, nextSort, slugify, text, thumbUrl } from '../../../lib/admin';
+
+const db = await getDb();
+let categoryError = '';
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const action = text(form, '_action', 30);
+  const id = Number(text(form, 'id', 12));
+  const dir = text(form, 'dir', 4);
+
+  if (action === 'move' && Number.isInteger(id) && (dir === 'up' || dir === 'down')) {
+    await moveRow('projects', id, dir);
+    return Astro.redirect('/admin/projects?msg=moved', 303);
+  }
+  if (action === 'feature' && Number.isInteger(id)) {
+    await db.prepare('UPDATE projects SET featured = 1 - featured, updated_at = datetime(\'now\') WHERE id = ?').bind(id).run();
+    return Astro.redirect('/admin/projects?msg=saved', 303);
+  }
+  if (action === 'category-move' && Number.isInteger(id) && (dir === 'up' || dir === 'down')) {
+    await moveRow('categories', id, dir);
+    return Astro.redirect('/admin/projects?msg=moved#categories', 303);
+  }
+  if (action === 'category-save' || action === 'category-add') {
+    const name = text(form, 'name', 60);
+    const slug = slugify(name);
+    if (!name || !SLUG_PATTERN.test(slug)) {
+      categoryError = 'Please enter a category name.';
+    } else {
+      const clash = await db.prepare('SELECT id FROM categories WHERE slug = ? AND id != ?').bind(slug, action === 'category-add' ? 0 : id).first();
+      if (clash) {
+        categoryError = 'A category with this name already exists.';
+      } else if (action === 'category-add') {
+        await db.prepare('INSERT INTO categories (slug, name, sort) VALUES (?, ?, ?)').bind(slug, name, await nextSort('categories')).run();
+        return Astro.redirect('/admin/projects?msg=created#categories', 303);
+      } else {
+        await db.prepare('UPDATE categories SET slug = ?, name = ? WHERE id = ?').bind(slug, name, id).run();
+        return Astro.redirect('/admin/projects?msg=saved#categories', 303);
+      }
+    }
+  }
+  if (action === 'category-delete' && Number.isInteger(id)) {
+    await db.batch([
+      db.prepare('UPDATE projects SET category_id = NULL WHERE category_id = ?').bind(id),
+      db.prepare('DELETE FROM categories WHERE id = ?').bind(id),
+    ]);
+    return Astro.redirect('/admin/projects?msg=deleted#categories', 303);
+  }
+}
+
+interface Row {
+  id: number;
+  slug: string;
+  title: string;
+  status: string;
+  featured: number;
+  tint: string;
+  cover_word: string;
+  category: string | null;
+  m_id: string | null;
+  m_widths: string | null;
+  m_formats: string | null;
+}
+const [{ results: projects }, { results: categories }] = await Promise.all([
+  db
+    .prepare(
+      `SELECT p.id, p.slug, p.title, p.status, p.featured, p.tint, p.cover_word, c.name AS category,
+         m.id AS m_id, m.widths AS m_widths, m.formats AS m_formats
+       FROM projects p LEFT JOIN categories c ON c.id = p.category_id LEFT JOIN media m ON m.id = p.cover_media_id
+       ORDER BY p.sort, p.id`,
+    )
+    .all<Row>(),
+  db
+    .prepare('SELECT c.id, c.name, (SELECT COUNT(*) FROM projects p WHERE p.category_id = c.id) AS count FROM categories c ORDER BY c.sort, c.id')
+    .all<{ id: number; name: string; count: number }>(),
+]);
+
+const thumb = (r: Row) =>
+  r.m_id ? thumbUrl({ id: r.m_id, widths: JSON.parse(r.m_widths ?? '[]'), formats: JSON.parse(r.m_formats ?? '[]'), mime: '', width: null, height: null, alt: '' }) : null;
+const featuredCount = projects.filter((p) => p.featured === 1 && p.status === 'published').length;
+---
+
+<AdminLayout title="Projects" active="projects">
+  <div class="admin-head">
+    <div>
+      <h1>Projects</h1>
+      <p>The order here is the order on the site. Starred projects show in "Selected work" on the Home page (the first 6). Drafts stay hidden until you publish them.</p>
+    </div>
+    <a class="btn btn-primary btn-sm" href="/admin/projects/new">New project</a>
+  </div>
+
+  {featuredCount > 6 && <p class="notice" style="margin-bottom: 16px">{featuredCount} projects are starred. Only the first 6 show on the Home page.</p>}
+
+  {
+    projects.length === 0 ? (
+      <p class="empty">No projects yet.</p>
+    ) : (
+      <ul class="item-list">
+        {projects.map((p, i) => {
+          const src = thumb(p);
+          return (
+            <li>
+              <div class="item-main">
+                <span class:list={['thumb', `tint-${p.tint}`]} aria-hidden="true">
+                  {src ? <img src={src} alt="" loading="lazy" /> : p.cover_word.slice(0, 7)}
+                </span>
+                <div style="min-width: 0">
+                  <a href={`/admin/projects/${p.id}`}>{p.title}</a>
+                  <span class="item-meta">{p.category ?? 'No category'}{src ? '' : ', no cover image yet'}</span>
+                </div>
+              </div>
+              <span class:list={['pill', p.status === 'published' ? 'pill-live' : 'pill-draft']}>{p.status === 'published' ? 'Live' : 'Draft'}</span>
+              <div class="item-actions">
+                <form method="post">
+                  <input type="hidden" name="_action" value="feature" />
+                  <input type="hidden" name="id" value={p.id} />
+                  <button class="btn btn-ghost btn-xs" type="submit" aria-pressed={p.featured === 1 ? 'true' : 'false'} aria-label={`Show ${p.title} on the Home page`}>
+                    {p.featured === 1 ? '★ On Home' : '☆ Home'}
+                  </button>
+                </form>
+                <form method="post">
+                  <input type="hidden" name="_action" value="move" />
+                  <input type="hidden" name="id" value={p.id} />
+                  <button class="btn btn-ghost btn-xs" type="submit" name="dir" value="up" disabled={i === 0} aria-label={`Move ${p.title} up`}>Up</button>
+                  <button class="btn btn-ghost btn-xs" type="submit" name="dir" value="down" disabled={i === projects.length - 1} aria-label={`Move ${p.title} down`}>Down</button>
+                </form>
+                <a class="btn btn-ghost btn-xs" href={`/admin/projects/${p.id}`} aria-label={`Edit ${p.title}`}>Edit</a>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    )
+  }
+
+  <section class="card" id="categories" style="margin-top: 32px" aria-labelledby="categories-title">
+    <h2 id="categories-title">Categories</h2>
+    <p class="hint" style="margin-bottom: 16px">The filter buttons on the Work page. Categories without live projects are hidden there.</p>
+    {categoryError && <p class="notice is-error" role="alert" style="margin-bottom: 16px">{categoryError}</p>}
+    <ul class="item-list">
+      {
+        categories.map((c, i) => (
+          <li>
+            <form method="post" class="item-main" style="gap: 8px">
+              <input type="hidden" name="_action" value="category-save" />
+              <input type="hidden" name="id" value={c.id} />
+              <label class="sr-only" for={`cat-${c.id}`}>Category name</label>
+              <input id={`cat-${c.id}`} name="name" type="text" maxlength="60" value={c.name} style="flex: 1; min-height: 40px; padding: 6px 12px; border: 1px solid var(--field-line); border-radius: 10px; background: var(--surface)" />
+              <button class="btn btn-ghost btn-xs" type="submit" aria-label={`Rename ${c.name}`}>Rename</button>
+            </form>
+            <span class="item-meta">{c.count} projects</span>
+            <div class="item-actions">
+              <form method="post">
+                <input type="hidden" name="_action" value="category-move" />
+                <input type="hidden" name="id" value={c.id} />
+                <button class="btn btn-ghost btn-xs" type="submit" name="dir" value="up" disabled={i === 0} aria-label={`Move ${c.name} up`}>Up</button>
+                <button class="btn btn-ghost btn-xs" type="submit" name="dir" value="down" disabled={i === categories.length - 1} aria-label={`Move ${c.name} down`}>Down</button>
+              </form>
+              <form method="post">
+                <input type="hidden" name="_action" value="category-delete" />
+                <input type="hidden" name="id" value={c.id} />
+                <button class="btn btn-ghost btn-xs" type="submit" aria-label={`Delete category ${c.name}`}>Delete</button>
+              </form>
+            </div>
+          </li>
+        ))
+      }
+    </ul>
+    <form method="post" class="form-actions" style="margin-top: 16px">
+      <input type="hidden" name="_action" value="category-add" />
+      <label class="sr-only" for="new-category">New category name</label>
+      <input id="new-category" name="name" type="text" maxlength="60" placeholder="New category name" required style="flex: 1 1 220px; min-height: 44px; padding: 10px 14px; border: 1px solid var(--field-line); border-radius: 12px; background: var(--surface)" />
+      <button class="btn btn-ghost btn-sm" type="submit">Add category</button>
+    </form>
+  </section>
+</AdminLayout>

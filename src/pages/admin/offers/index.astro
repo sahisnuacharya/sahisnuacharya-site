@@ -1,0 +1,58 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { getDb } from '../../../lib/db';
+import { offerState } from '../../../lib/admin';
+import { todayInNepal } from '../../../lib/content';
+import { formatDate } from '../../../lib/format';
+
+const db = await getDb();
+const { results: offers } = await db
+  .prepare(
+    `SELECT o.id, o.title, o.status, o.starts_at, o.ends_at, o.discount_type, o.discount_value, s.name AS service_name
+     FROM offers o LEFT JOIN services s ON s.id = o.service_id
+     ORDER BY o.created_at DESC, o.id DESC`,
+  )
+  .all<{ id: number; title: string; status: string; starts_at: string | null; ends_at: string | null; discount_type: string; discount_value: number; service_name: string | null }>();
+
+const today = todayInNepal();
+const LABELS = { live: 'Live', scheduled: 'Scheduled', ended: 'Ended', draft: 'Draft' } as const;
+const CLASSES = { live: 'pill-live', scheduled: 'pill-new', ended: 'pill-draft', draft: 'pill-draft' } as const;
+---
+
+<AdminLayout title="Offers" active="offers">
+  <div class="admin-head">
+    <div>
+      <h1>Offers</h1>
+      <p>A live offer shows as a banner on the Home page and as a note on the Contact page. Set dates and it starts and ends by itself.</p>
+    </div>
+    <a class="btn btn-primary btn-sm" href="/admin/offers/new">New offer</a>
+  </div>
+
+  {
+    offers.length === 0 ? (
+      <p class="empty">No offers yet. Create one when you want to run a discount.</p>
+    ) : (
+      <ul class="item-list">
+        {offers.map((o) => {
+          const state = offerState(o, today);
+          const discount = o.discount_type === 'percent' ? `${o.discount_value}% off` : o.discount_type === 'fixed' ? 'Special price' : '';
+          const dates = [o.starts_at ? `from ${formatDate(o.starts_at)}` : '', o.ends_at ? `until ${formatDate(o.ends_at)}` : ''].filter(Boolean).join(' ');
+          return (
+            <li>
+              <div class="item-main">
+                <div style="min-width: 0">
+                  <a href={`/admin/offers/${o.id}`}>{o.title}</a>
+                  <span class="item-meta">{[o.service_name, discount, dates].filter(Boolean).join(', ') || 'No dates, always on while published'}</span>
+                </div>
+              </div>
+              <span class:list={['pill', CLASSES[state]]}>{LABELS[state]}</span>
+              <div class="item-actions">
+                <a class="btn btn-ghost btn-xs" href={`/admin/offers/${o.id}`} aria-label={`Edit ${o.title}`}>Edit</a>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    )
+  }
+</AdminLayout>

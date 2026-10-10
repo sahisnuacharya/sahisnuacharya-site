@@ -201,10 +201,11 @@ export async function listProjects(
 
 export async function getProject(
   slug: string,
+  options: { includeDrafts?: boolean } = {},
 ): Promise<{ project: Project; images: ProjectImage[]; next: Project | null } | null> {
   const db = await getDb();
   const row = await db
-    .prepare(`${PROJECT_SELECT} WHERE p.slug = ? AND p.status = 'published'`)
+    .prepare(`${PROJECT_SELECT} WHERE p.slug = ?${options.includeDrafts ? '' : " AND p.status = 'published'"}`)
     .bind(slug)
     .first<ProjectRow>();
   if (!row) return null;

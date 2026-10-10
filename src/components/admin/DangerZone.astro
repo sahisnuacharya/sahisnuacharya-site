@@ -1,0 +1,20 @@
+---
+interface Props {
+  label: string;
+  warning: string;
+  action?: string;
+  fields?: Record<string, string | number>;
+}
+
+const { label, warning, action = '', fields = {} } = Astro.props;
+---
+
+<details class="card danger-zone">
+  <summary>{label}</summary>
+  <p>{warning}</p>
+  <form method="post" action={action || undefined}>
+    <input type="hidden" name="_action" value="delete" />
+    {Object.entries(fields).map(([k, v]) => <input type="hidden" name={k} value={String(v)} />)}
+    <button class="btn btn-danger" type="submit">Yes, delete permanently</button>
+  </form>
+</details>

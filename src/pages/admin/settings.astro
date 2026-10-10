@@ -1,0 +1,192 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import ImageField from '../../components/admin/ImageField.astro';
+import { getDb } from '../../lib/db';
+import { checked, getMediaItem, isEmail, isHttpsUrl, text } from '../../lib/admin';
+
+const db = await getDb();
+const KEYS = [
+  'name', 'first_name', 'last_name', 'role', 'location', 'available', 'available_text', 'booked_text',
+  'email', 'whatsapp', 'behance', 'linkedin', 'upwork', 'instagram', 'youtube',
+  'hero_photo', 'contact_photo', 'cv_file', 'seo_description',
+] as const;
+type Key = (typeof KEYS)[number];
+
+const { results } = await db.prepare('SELECT key, value FROM settings').all<{ key: string; value: string }>();
+const values: Record<string, string> = Object.fromEntries(results.map((r) => [r.key, r.value]));
+const errors: Partial<Record<Key, string>> = {};
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const next: Record<Key, string> = {} as Record<Key, string>;
+  for (const key of KEYS) next[key] = text(form, key, key === 'seo_description' ? 320 : 200);
+  next.available = checked(form, 'available') ? '1' : '0';
+  next.whatsapp = next.whatsapp.replace(/[^\d]/g, '');
+
+  if (!next.name) errors.name = 'Please enter your name.';
+  if (!next.first_name) errors.first_name = 'Please enter the first line of the big headline.';
+  if (next.email && !isEmail(next.email)) errors.email = 'Please enter a valid email address.';
+  if (next.whatsapp && (next.whatsapp.length < 8 || next.whatsapp.length > 15)) {
+    errors.whatsapp = 'Use the full number with country code, for example 9779812345678.';
+  }
+  for (const key of ['behance', 'linkedin', 'upwork', 'instagram', 'youtube'] as const) {
+    if (next[key] && !isHttpsUrl(next[key])) errors[key] = 'Use a full link starting with https://';
+  }
+  for (const key of ['hero_photo', 'contact_photo'] as const) {
+    if (next[key] && (await getMediaItem(next[key]))?.kind !== 'image') next[key] = '';
+  }
+  if (next.cv_file && (await getMediaItem(next.cv_file))?.kind !== 'file') next.cv_file = '';
+
+  if (Object.keys(errors).length === 0) {
+    await db.batch(
+      KEYS.map((key) =>
+        db
+          .prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+          .bind(key, next[key]),
+      ),
+    );
+    return Astro.redirect('/admin/settings?msg=saved', 303);
+  }
+  Object.assign(values, next);
+}
+
+const [heroPhoto, contactPhoto, cvFile] = await Promise.all([
+  values.hero_photo ? getMediaItem(values.hero_photo) : null,
+  values.contact_photo ? getMediaItem(values.contact_photo) : null,
+  values.cv_file ? getMediaItem(values.cv_file) : null,
+]);
+
+const field = (key: Key) => ({ value: values[key] ?? '', error: errors[key] });
+const hasErrors = Object.keys(errors).length > 0;
+const socials = [
+  { key: 'behance', label: 'Behance' },
+  { key: 'linkedin', label: 'LinkedIn' },
+  { key: 'upwork', label: 'Upwork' },
+  { key: 'instagram', label: 'Instagram' },
+  { key: 'youtube', label: 'YouTube' },
+] as const;
+---
+
+<AdminLayout title="Settings" active="settings">
+  <div class="admin-head">
+    <div>
+      <h1>Settings</h1>
+      <p>Your name, contact details, links, photo and CV. Empty links are hidden on the site.</p>
+    </div>
+  </div>
+
+  {hasErrors && <p class="notice is-error" role="alert" style="margin-bottom: 20px">Some fields need a fix. They are marked below.</p>}
+
+  <form method="post" class="stack" novalidate>
+    <section class="card form-grid" aria-labelledby="details-title">
+      <h2 id="details-title">Your details</h2>
+      <div class="form-row">
+        <div class="field">
+          <label for="name">Full name</label>
+          <input id="name" name="name" type="text" required maxlength="100" value={field('name').value} aria-invalid={errors.name ? 'true' : undefined} aria-describedby={errors.name ? 'name-error' : undefined} />
+          {errors.name && <p class="field-error" id="name-error">{errors.name}</p>}
+        </div>
+        <div class="field">
+          <label for="role">Role</label>
+          <input id="role" name="role" type="text" maxlength="80" value={field('role').value} />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label for="first_name">Headline line 1</label>
+          <input id="first_name" name="first_name" type="text" maxlength="40" value={field('first_name').value} aria-invalid={errors.first_name ? 'true' : undefined} aria-describedby={errors.first_name ? 'first_name-error' : undefined} />
+          {errors.first_name && <p class="field-error" id="first_name-error">{errors.first_name}</p>}
+        </div>
+        <div class="field">
+          <label for="last_name">Headline line 2</label>
+          <input id="last_name" name="last_name" type="text" maxlength="40" value={field('last_name').value} />
+        </div>
+      </div>
+      <div class="field">
+        <label for="location">Location</label>
+        <input id="location" name="location" type="text" maxlength="80" value={field('location').value} />
+      </div>
+    </section>
+
+    <section class="card form-grid" aria-labelledby="availability-title">
+      <h2 id="availability-title">Availability sticker</h2>
+      <label class="check"><input type="checkbox" name="available" checked={values.available !== '0'} /> I am available for new work</label>
+      <div class="form-row">
+        <div class="field">
+          <label for="available_text">Text when available</label>
+          <input id="available_text" name="available_text" type="text" maxlength="40" value={field('available_text').value} />
+        </div>
+        <div class="field">
+          <label for="booked_text">Text when booked</label>
+          <input id="booked_text" name="booked_text" type="text" maxlength="40" value={field('booked_text').value} />
+        </div>
+      </div>
+    </section>
+
+    <section class="card form-grid" aria-labelledby="contact-title">
+      <h2 id="contact-title">Contact</h2>
+      <div class="form-row">
+        <div class="field">
+          <label for="email">Email shown on the site</label>
+          <input id="email" name="email" type="email" maxlength="200" value={field('email').value} aria-invalid={errors.email ? 'true' : undefined} aria-describedby={errors.email ? 'email-error' : undefined} />
+          {errors.email && <p class="field-error" id="email-error">{errors.email}</p>}
+        </div>
+        <div class="field">
+          <label for="whatsapp">WhatsApp number</label>
+          <input id="whatsapp" name="whatsapp" type="tel" inputmode="numeric" maxlength="20" value={field('whatsapp').value} aria-invalid={errors.whatsapp ? 'true' : undefined} aria-describedby={errors.whatsapp ? 'whatsapp-hint whatsapp-error' : 'whatsapp-hint'} />
+          <p class="hint" id="whatsapp-hint">With country code and no plus sign, for example 9779812345678. Leave empty to hide the WhatsApp button.</p>
+          {errors.whatsapp && <p class="field-error" id="whatsapp-error">{errors.whatsapp}</p>}
+        </div>
+      </div>
+    </section>
+
+    <section class="card form-grid" aria-labelledby="social-title">
+      <h2 id="social-title">Social links</h2>
+      <div class="form-row">
+        {
+          socials.map((s) => (
+            <div class="field">
+              <label for={s.key}>{s.label}</label>
+              <input id={s.key} name={s.key} type="url" placeholder="https://" maxlength="200" value={field(s.key).value} aria-invalid={errors[s.key] ? 'true' : undefined} aria-describedby={errors[s.key] ? `${s.key}-error` : undefined} />
+              {errors[s.key] && <p class="field-error" id={`${s.key}-error`}>{errors[s.key]}</p>}
+            </div>
+          ))
+        }
+      </div>
+    </section>
+
+    <section class="card form-grid" id="photos" aria-labelledby="photos-title">
+      <h2 id="photos-title">Photos and CV</h2>
+      <ImageField name="hero_photo" label="Home page photo" value={heroPhoto} hint="A cutout with a transparent background (PNG) looks best next to your name." />
+      <ImageField name="contact_photo" label="Small round photo" value={contactPhoto} hint={'Shows inside the circle in "Let\'s work together". A square face photo works best.'} />
+      <div class="image-field" data-file-field>
+        <span class="label" style="font-weight: 650" id="cv-label">CV (PDF)</span>
+        <input type="hidden" name="cv_file" value={cvFile?.id ?? ''} data-file-input />
+        <p>
+          {cvFile ? <a class="text-link" href={`/media/file/${cvFile.id}`} target="_blank" rel="noopener" data-file-current>{cvFile.originalName}</a> : <span data-file-current>No file yet</span>}
+        </p>
+        <div class="image-buttons">
+          <label class="btn btn-ghost btn-xs">
+            Upload PDF
+            <input class="sr-only" type="file" accept="application/pdf,.pdf" data-file-upload aria-describedby="cv-label" />
+          </label>
+          <button class="btn btn-ghost btn-xs" type="button" data-file-remove hidden={!cvFile}>Remove</button>
+        </div>
+        <p class="upload-status" role="status" aria-live="polite" data-upload-status></p>
+      </div>
+    </section>
+
+    <section class="card form-grid" aria-labelledby="seo-title">
+      <h2 id="seo-title">Search engines</h2>
+      <div class="field">
+        <label for="seo_description">Site description</label>
+        <textarea id="seo_description" name="seo_description" maxlength="320" aria-describedby="seo-hint">{field('seo_description').value}</textarea>
+        <p class="hint" id="seo-hint">Shown under your name in Google results. About 150 characters is ideal.</p>
+      </div>
+    </section>
+
+    <div class="form-actions">
+      <button class="btn btn-primary" type="submit">Save settings</button>
+    </div>
+  </form>
+</AdminLayout>

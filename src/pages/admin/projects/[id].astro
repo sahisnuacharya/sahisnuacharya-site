@@ -1,0 +1,326 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import ImageField from '../../../components/admin/ImageField.astro';
+import DangerZone from '../../../components/admin/DangerZone.astro';
+import { getDb } from '../../../lib/db';
+import { TINTS, SLUG_PATTERN, checked, getMediaItem, nextSort, slugify, text, thumbUrl, wholeNumber } from '../../../lib/admin';
+import type { MediaItem } from '../../../lib/admin';
+
+const db = await getDb();
+const isNew = Astro.params.id === 'new';
+const id = Number(Astro.params.id);
+if (!isNew && (!Number.isInteger(id) || id < 1)) return Astro.rewrite('/404');
+
+interface ProjectForm {
+  title: string;
+  slug: string;
+  summary: string;
+  body: string;
+  category_id: string;
+  client: string;
+  role: string;
+  year: string;
+  cover: string;
+  cover_word: string;
+  tint: string;
+  featured: boolean;
+  status: 'draft' | 'published';
+}
+
+interface GalleryRow {
+  media: MediaItem;
+  caption: string;
+}
+
+let values: ProjectForm = {
+  title: '', slug: '', summary: '', body: '', category_id: '', client: '', role: '', year: '',
+  cover: '', cover_word: '', tint: 'blue', featured: false, status: 'draft',
+};
+let gallery: GalleryRow[] = [];
+
+const { results: categories } = await db
+  .prepare('SELECT id, name FROM categories ORDER BY sort, id')
+  .all<{ id: number; name: string }>();
+
+if (!isNew) {
+  const row = await db
+    .prepare(
+      `SELECT title, slug, summary, body, category_id, client, role, year, cover_media_id, cover_word, tint, featured, status
+       FROM projects WHERE id = ?`,
+    )
+    .bind(id)
+    .first<{
+      title: string; slug: string; summary: string; body: string; category_id: number | null; client: string; role: string;
+      year: number | null; cover_media_id: string | null; cover_word: string; tint: string; featured: number; status: string;
+    }>();
+  if (!row) return Astro.rewrite('/404');
+  values = {
+    title: row.title, slug: row.slug, summary: row.summary, body: row.body,
+    category_id: row.category_id?.toString() ?? '', client: row.client, role: row.role,
+    year: row.year?.toString() ?? '', cover: row.cover_media_id ?? '', cover_word: row.cover_word,
+    tint: row.tint, featured: row.featured === 1, status: row.status === 'published' ? 'published' : 'draft',
+  };
+  const { results } = await db
+    .prepare('SELECT media_id, caption FROM project_images WHERE project_id = ? ORDER BY sort, id')
+    .bind(id)
+    .all<{ media_id: string; caption: string }>();
+  for (const r of results) {
+    const media = await getMediaItem(r.media_id);
+    if (media) gallery.push({ media, caption: r.caption });
+  }
+}
+
+const errors: Partial<Record<keyof ProjectForm, string>> = {};
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  if (form.get('_action') === 'delete' && !isNew) {
+    await db.prepare('DELETE FROM projects WHERE id = ?').bind(id).run();
+    return Astro.redirect('/admin/projects?msg=deleted', 303);
+  }
+
+  const title = text(form, 'title', 120);
+  const requestedStatus = text(form, 'status', 12) === 'published' ? 'published' : 'draft';
+  values = {
+    title,
+    slug: text(form, 'slug', 80) || slugify(title),
+    summary: text(form, 'summary', 300),
+    body: text(form, 'body', 8000),
+    category_id: text(form, 'category_id', 10),
+    client: text(form, 'client', 100),
+    role: text(form, 'role', 100),
+    year: text(form, 'year', 6),
+    cover: text(form, 'cover', 40),
+    cover_word: text(form, 'cover_word', 24),
+    tint: text(form, 'tint', 12),
+    featured: checked(form, 'featured'),
+    status: requestedStatus,
+  };
+
+  const year = wholeNumber(form, 'year');
+  if (!values.title) errors.title = 'Please enter a title.';
+  if (!SLUG_PATTERN.test(values.slug)) errors.slug = 'Use only small letters, numbers and dashes.';
+  if (year === 'invalid' || (typeof year === 'number' && (year < 1990 || year > 2100))) errors.year = 'Use a four digit year, for example 2025.';
+  if (!(TINTS as readonly string[]).includes(values.tint)) values.tint = 'blue';
+  if (values.category_id && !categories.some((c) => String(c.id) === values.category_id)) values.category_id = '';
+
+  const clash = await db.prepare('SELECT id FROM projects WHERE slug = ? AND id != ?').bind(values.slug, isNew ? 0 : id).first();
+  if (clash) errors.slug = 'Another project already uses this web address.';
+
+  const cover = values.cover ? await getMediaItem(values.cover) : null;
+  if (!cover || cover.kind !== 'image') values.cover = '';
+
+  const mediaIds = form.getAll('gallery_media').filter((v): v is string => typeof v === 'string').slice(0, 40);
+  const captions = form.getAll('gallery_caption').map((v) => (typeof v === 'string' ? v.trim().slice(0, 200) : ''));
+  const rows: GalleryRow[] = [];
+  for (const [i, mediaId] of mediaIds.entries()) {
+    const media = await getMediaItem(mediaId);
+    if (media && media.kind === 'image') rows.push({ media, caption: captions[i] ?? '' });
+  }
+  gallery = rows;
+
+  if (Object.keys(errors).length === 0) {
+    const categoryId = values.category_id ? Number(values.category_id) : null;
+    const yearValue = year === 'invalid' ? null : year;
+    let projectId = id;
+    if (isNew) {
+      const result = await db
+        .prepare(
+          `INSERT INTO projects (slug, title, summary, body, category_id, client, role, year, cover_media_id, cover_word, tint, featured, status, sort)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          values.slug, values.title, values.summary, values.body, categoryId, values.client, values.role, yearValue,
+          values.cover || null, values.cover_word, values.tint, values.featured ? 1 : 0, values.status, await nextSort('projects'),
+        )
+        .run();
+      projectId = Number(result.meta.last_row_id);
+    } else {
+      await db
+        .prepare(
+          `UPDATE projects SET slug = ?, title = ?, summary = ?, body = ?, category_id = ?, client = ?, role = ?, year = ?,
+             cover_media_id = ?, cover_word = ?, tint = ?, featured = ?, status = ?, updated_at = datetime('now') WHERE id = ?`,
+        )
+        .bind(
+          values.slug, values.title, values.summary, values.body, categoryId, values.client, values.role, yearValue,
+          values.cover || null, values.cover_word, values.tint, values.featured ? 1 : 0, values.status, id,
+        )
+        .run();
+    }
+    await db.batch([
+      db.prepare('DELETE FROM project_images WHERE project_id = ?').bind(projectId),
+      ...rows.map((r, i) =>
+        db.prepare('INSERT INTO project_images (project_id, media_id, caption, sort) VALUES (?, ?, ?, ?)').bind(projectId, r.media.id, r.caption, i + 1),
+      ),
+    ]);
+    const msg = values.status === 'published' ? 'published' : isNew ? 'created' : 'saved';
+    const wasPublished = !isNew && Astro.url.searchParams.get('was') === 'published';
+    return Astro.redirect(`/admin/projects/${projectId}?msg=${values.status === 'draft' && wasPublished ? 'unpublished' : msg}`, 303);
+  }
+}
+
+const coverItem = values.cover ? await getMediaItem(values.cover) : null;
+const err = (k: keyof ProjectForm) => (errors[k] ? `${k}-error` : undefined);
+const wasPublished = !isNew && values.status === 'published';
+---
+
+<AdminLayout title={isNew ? 'New project' : values.title} active="projects">
+  <a class="back-link" href="/admin/projects">All projects</a>
+  <div class="admin-head">
+    <div>
+      <h1>{isNew ? 'New project' : 'Edit project'}</h1>
+      {!isNew && <p><span class:list={['pill', values.status === 'published' ? 'pill-live' : 'pill-draft']}>{values.status === 'published' ? 'Live' : 'Draft'}</span></p>}
+    </div>
+    {
+      !isNew && (
+        <a class="btn btn-ghost btn-sm" href={values.status === 'published' ? `/work/${values.slug}` : `/work/${values.slug}?preview=1`} target="_blank" rel="noopener">
+          {values.status === 'published' ? 'View on site' : 'Preview draft'}
+        </a>
+      )
+    }
+  </div>
+
+  {Object.keys(errors).length > 0 && <p class="notice is-error" role="alert" style="margin-bottom: 20px">Some fields need a fix. They are marked below.</p>}
+
+  <form method="post" class="stack" novalidate action={wasPublished ? '?was=published' : undefined}>
+    <section class="card form-grid" aria-labelledby="basics-title">
+      <h2 id="basics-title">Basics</h2>
+      <div class="form-row">
+        <div class="field">
+          <label for="title">Project title</label>
+          <input id="title" name="title" type="text" required maxlength="120" value={values.title} data-slug-source aria-invalid={errors.title ? 'true' : undefined} aria-describedby={err('title')} />
+          {errors.title && <p class="field-error" id="title-error">{errors.title}</p>}
+        </div>
+        <div class="field">
+          <label for="slug">Web address part</label>
+          <input id="slug" name="slug" type="text" maxlength="80" value={values.slug} data-slug-target aria-invalid={errors.slug ? 'true' : undefined} aria-describedby={errors.slug ? 'slug-hint slug-error' : 'slug-hint'} />
+          <p class="hint" id="slug-hint">Fills in by itself. Changing it later changes the project link.</p>
+          {errors.slug && <p class="field-error" id="slug-error">{errors.slug}</p>}
+        </div>
+      </div>
+      <div class="field">
+        <label for="summary">One line summary</label>
+        <input id="summary" name="summary" type="text" maxlength="300" value={values.summary} />
+      </div>
+      <div class="field">
+        <label for="body">Story</label>
+        <textarea id="body" name="body" rows="7" maxlength="8000" aria-describedby="body-hint">{values.body}</textarea>
+        <p class="hint" id="body-hint">What the project was and what you did. Leave an empty line between paragraphs.</p>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label for="category_id">Category</label>
+          <select id="category_id" name="category_id">
+            <option value="" selected={values.category_id === ''}>No category</option>
+            {categories.map((c) => <option value={c.id} selected={values.category_id === String(c.id)}>{c.name}</option>)}
+          </select>
+        </div>
+        <div class="field">
+          <label for="client">Client</label>
+          <input id="client" name="client" type="text" maxlength="100" value={values.client} />
+        </div>
+        <div class="field">
+          <label for="role">Your role</label>
+          <input id="role" name="role" type="text" maxlength="100" value={values.role} />
+        </div>
+        <div class="field">
+          <label for="year">Year</label>
+          <input id="year" name="year" type="text" inputmode="numeric" maxlength="4" value={values.year} aria-invalid={errors.year ? 'true' : undefined} aria-describedby={err('year')} />
+          {errors.year && <p class="field-error" id="year-error">{errors.year}</p>}
+        </div>
+      </div>
+    </section>
+
+    <section class="card form-grid" aria-labelledby="cover-title">
+      <h2 id="cover-title">Cover</h2>
+      <ImageField name="cover" label="Cover image" value={coverItem} hint="Shown on the Home and Work pages. A landscape or square image works best." />
+      <div class="form-row">
+        <div class="field">
+          <label for="cover_word">Placeholder word</label>
+          <input id="cover_word" name="cover_word" type="text" maxlength="24" value={values.cover_word} aria-describedby="cover-word-hint" />
+          <p class="hint" id="cover-word-hint">Shown on the colored card while there is no cover image.</p>
+        </div>
+        <div class="field">
+          <label for="tint">Card color</label>
+          <select id="tint" name="tint">
+            {TINTS.map((t) => <option value={t} selected={values.tint === t}>{t}</option>)}
+          </select>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="gallery-title" data-gallery>
+      <h2 id="gallery-title">Project images</h2>
+      <p class="hint" style="margin-bottom: 14px">The pictures on the project page, in order. Add as many as you like.</p>
+      <p class="hint" data-gallery-empty hidden={gallery.length > 0}>No images yet.</p>
+      <ol class="gallery-list" data-gallery-list>
+        {
+          gallery.map((row) => (
+            <li>
+              <div class="image-preview" data-image-preview>
+                {thumbUrl(row.media) ? <img src={thumbUrl(row.media)!} alt="" /> : <span>Image</span>}
+              </div>
+              <input type="hidden" name="gallery_media" value={row.media.id} />
+              <div class="field">
+                <label for="gallery-caption-x">Caption <span class="muted">(optional)</span></label>
+                <input id="gallery-caption-x" name="gallery_caption" type="text" maxlength="200" value={row.caption} />
+              </div>
+              <div class="image-buttons">
+                <button class="btn btn-ghost btn-xs" type="button" data-move="up">Move up</button>
+                <button class="btn btn-ghost btn-xs" type="button" data-move="down">Move down</button>
+                <button class="btn btn-ghost btn-xs" type="button" data-remove>Remove</button>
+              </div>
+            </li>
+          ))
+        }
+      </ol>
+      <template data-gallery-template>
+        <li>
+          <div class="image-preview" data-image-preview><span>Image</span></div>
+          <input type="hidden" name="gallery_media" value="" />
+          <div class="field">
+            <label for="gallery-caption-x">Caption <span class="muted">(optional)</span></label>
+            <input id="gallery-caption-x" name="gallery_caption" type="text" maxlength="200" value="" />
+          </div>
+          <div class="image-buttons">
+            <button class="btn btn-ghost btn-xs" type="button" data-move="up">Move up</button>
+            <button class="btn btn-ghost btn-xs" type="button" data-move="down">Move down</button>
+            <button class="btn btn-ghost btn-xs" type="button" data-remove>Remove</button>
+          </div>
+        </li>
+      </template>
+      <div class="image-buttons">
+        <label class="btn btn-ghost btn-sm">
+          Upload images
+          <input class="sr-only" type="file" multiple accept="image/jpeg,image/png,image/webp,image/avif,image/gif" data-gallery-upload />
+        </label>
+        <button class="btn btn-ghost btn-sm" type="button" data-gallery-library>Choose from library</button>
+      </div>
+      <p class="upload-status" role="status" aria-live="polite" data-upload-status></p>
+    </section>
+
+    <section class="card form-grid" aria-labelledby="show-title">
+      <h2 id="show-title">Showing</h2>
+      <label class="check"><input type="checkbox" name="featured" checked={values.featured} /> Show on the Home page</label>
+    </section>
+
+    <div class="form-actions">
+      {
+        values.status === 'published' ? (
+          <>
+            <button class="btn btn-primary" type="submit" name="status" value="published">Save changes</button>
+            <button class="btn btn-ghost" type="submit" name="status" value="draft">Move to drafts</button>
+          </>
+        ) : (
+          <>
+            <button class="btn btn-primary" type="submit" name="status" value="published">Publish</button>
+            <button class="btn btn-ghost" type="submit" name="status" value="draft">Save as draft</button>
+          </>
+        )
+      }
+      <a class="btn btn-ghost" href="/admin/projects">Cancel</a>
+    </div>
+  </form>
+
+  {!isNew && <DangerZone label="Delete this project" warning="The project and its image list are removed from the site. Images stay in your library. This cannot be undone." />}
+</AdminLayout>
